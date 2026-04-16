@@ -1,0 +1,16 @@
+{
+  "name": "philips",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "cb_demo_core.js",
+  "scripts": {
+    "test": "node cb_demo_core.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  }
+}

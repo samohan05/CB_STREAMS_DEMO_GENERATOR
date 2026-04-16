@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CB Demo Generator v4</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <style>
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8f9fa;
+      --bg-tertiary: #e9ecef;
+      --bg-danger: #fff5f5;
+      --text-primary: #212529;
+      --text-secondary: #6c757d;
+      --text-tertiary: #adb5bd;
+      --text-danger: #dc3545;
+      --border-primary: #212529;
+      --border-secondary: #dee2e6;
+      --border-tertiary: #e9ecef;
+      --border-danger: #f5c6cb;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --accent: #1D9E75;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      display: flex; justify-content: center;
+      padding: 2rem 1rem;
+    }
+    #root { max-width: 740px; width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    // ─── Product Catalog ──────────────────────────────────────────────
+    const PRODUCTS = [
+      { id:"mri",  emoji:"🔬", label:"MRI Systems",        domain:"Magnetic Resonance Imaging (MRI) Systems",         industry:"Medical Device / Radiology" },
+      { id:"us",   emoji:"🏥", label:"Ultrasound",          domain:"Diagnostic Ultrasound Imaging Systems",            industry:"Medical Device / Radiology" },
+      { id:"ct",   emoji:"🫁", label:"CT Scanner",           domain:"Computed Tomography (CT) Scanner Systems",         industry:"Medical Device / Radiology" },
+      { id:"igt",  emoji:"🩺", label:"Image-Guided Therapy", domain:"Image-Guided Therapy & Intervention Systems",      industry:"Medical Device / Interventional" },
+      { id:"pm",   emoji:"📊", label:"Patient Monitoring",   domain:"Multi-Parameter Patient Monitoring Systems",       industry:"Medical Device / Critical Care" },
+      { id:"rt",   emoji:"☢️", label:"Radiotherapy",         domain:"External Beam Radiation Therapy Delivery Systems", industry:"Medical Device / Oncology" },
+      { id:"pace", emoji:"❤️", label:"Pacemakers",           domain:"Implantable Cardiac Rhythm Management Devices",    industry:"Medical Device / Cardiology" },
+      { id:"adas", emoji:"🚗", label:"ADAS Systems",         domain:"Advanced Driver Assistance Systems (ADAS/AD)",     industry:"Automotive / Safety-Critical" },
+    ];
+
+    const TIERS = [
+      { key:"library_streams",      label:"Library Streams",      short:"LIB", clr:"#0F6E56", bg:"#E1F5EE" },
+      { key:"product_line_streams", label:"Product Line Streams",  short:"PL",  clr:"#534AB7", bg:"#EEEDFE" },
+      { key:"transform_streams",    label:"Transform Streams",     short:"TR",  clr:"#854F0B", bg:"#FAEEDA" },
+      { key:"release_streams",      label:"Release Streams",       short:"REL", clr:"#185FA5", bg:"#E6F1FB" },
+    ];
+
+    // ─── Styles ───────────────────────────────────────────────────────
+    const inputStyle = {
+      width:"100%", boxSizing:"border-box", padding:"8px 10px",
+      borderRadius:8, border:"1px solid var(--border-secondary)",
+      background:"var(--bg-primary)", fontSize:13,
+      color:"var(--text-primary)", fontFamily:"var(--font-sans)",
+    };
+    const btnStyle = (primary) => ({
+      padding:"9px 20px", borderRadius:8, fontSize:13, fontWeight:500,
+      cursor:"pointer", border:`1px solid ${primary ? "var(--border-primary)" : "var(--border-secondary)"}`,
+      background: primary ? "var(--text-primary)" : "var(--bg-primary)",
+      color: primary ? "var(--bg-primary)" : "var(--text-primary)",
+    });
+    const btnDisabled = { ...btnStyle(true), opacity:0.35, cursor:"not-allowed" };
+    const smallBtnStyle = (primary) => ({
+      ...btnStyle(primary), padding:"6px 14px", fontSize:12,
+    });
+
+    // ─── JSON parser ──────────────────────────────────────────────────
+    function sanitizeJson(raw) {
+      let s = raw.trim().replace(/^\uFEFF/,'').replace(/^```json?\s*/im,'').replace(/\s*```\s*$/im,'');
+      let out='', inStr=false, esc=false;
+      for (let i=0;i<s.length;i++){
+        const ch=s[i];
+        if(esc){out+=ch;esc=false;continue}
+        if(ch==='\\'){out+=ch;esc=true;continue}
+        if(ch==='"'){out+=ch;inStr=!inStr;continue}
+        if(inStr){
+          if(ch==='\n')out+='\\n';
+          else if(ch==='\r')out+='\\r';
+          else if(ch==='\t')out+='\\t';
+          else out+=ch;
+        } else out+=ch;
+      }
+      return out;
+    }
+    function parseAIJson(raw) {
+      const fix=s=>s.replace(/,(\s*[}\]])/g,'$1');
+      const attempts=[
+        ()=>JSON.parse(fix(sanitizeJson(raw))),
+        ()=>{const m=sanitizeJson(raw).match(/\{[\s\S]*/);if(!m)throw 0;return JSON.parse(fix(m[0]))},
+        ()=>{
+          let s=fix(sanitizeJson(raw).match(/\{[\s\S]*/)?.[0]||'');
+          let b=0,k=0,inS=false,e2=false;
+          for(const ch of s){if(e2){e2=false;continue}if(ch==='\\'){e2=true;continue}if(ch==='"'){inS=!inS;continue}if(inS)continue;if(ch==='{')b++;else if(ch==='}')b--;if(ch==='[')k++;else if(ch===']')k--}
+          if(inS)s+='"';while(k>0){s+=']';k--}while(b>0){s+='}';b--}
+          return JSON.parse(fix(s));
+        },
+      ];
+      for(const fn of attempts){try{return fn()}catch(_){}}
+      throw new Error('JSON repair failed');
+    }
+
+    // ─── Step Progress Bar ────────────────────────────────────────────
+    const STEP_LABELS = ["Product","Projects","Requirements","Streams","Summary"];
+    function StepBar({ current }) {
+      return (
+        <div style={{ display:"flex", gap:2, marginBottom:24 }}>
+          {STEP_LABELS.map((lbl,i) => (
+            <div key={i} style={{ flex:1, textAlign:"center" }}>
+              <div style={{
+                height:4, borderRadius:2, marginBottom:5,
+                background: i<current ? "#1D9E75" : i===current ? "var(--text-primary)" : "var(--bg-tertiary)",
+              }} />
+              <span style={{ fontSize:11, color: i<=current ? "var(--text-secondary)" : "var(--text-tertiary)" }}>{lbl}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function Stat({ value, label, color }) {
+      return (
+        <div style={{ textAlign:"center", padding:"10px 8px", borderRadius:8,
+          border:"1px solid var(--border-tertiary)", background:"var(--bg-secondary)" }}>
+          <div style={{ fontSize:20, fontWeight:600, color }}>{value}</div>
+          <div style={{ fontSize:11, color:"var(--text-secondary)" }}>{label}</div>
+        </div>
+      );
+    }
+
+    function StatusBadge({ status }) {
+      const cfg = {
+        pending:  { bg:"var(--bg-tertiary)", color:"var(--text-tertiary)", text:"Pending" },
+        creating: { bg:"#FEF3C7", color:"#92400E", text:"Creating..." },
+        done:     { bg:"#D1FAE5", color:"#065F46", text:"Created" },
+        error:    { bg:"#FEE2E2", color:"#991B1B", text:"Failed" },
+      }[status] || { bg:"transparent", color:"var(--text-tertiary)", text:status };
+      return (
+        <span style={{ padding:"3px 10px", borderRadius:10, fontSize:11, fontWeight:500, background:cfg.bg, color:cfg.color }}>
+          {cfg.text}
+        </span>
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MAIN APP
+    // ═══════════════════════════════════════════════════════════════════
+    function App() {
+      const [step, setStep] = useState(0);
+      const [dryRun, setDryRun] = useState(true);
+      // Alias for easy reference throughout
+      const DRY_RUN = dryRun;
+
+      // Step 0: Product selection
+      const [product, setProduct] = useState(null);
+      const [customDomain, setCustomDomain] = useState("");
+      const [customIndustry, setCustomIndustry] = useState("");
+
+      // CB Connection (loaded from backend, editable)
+      const [cbUrl, setCbUrl] = useState("");
+      const [cbUser, setCbUser] = useState("");
+      const [cbPass, setCbPass] = useState("");
+
+      // OpenAI (always through backend proxy)
+      const [backendHasKey, setBackendHasKey] = useState(false);
+      const [useLocalProxy, setUseLocalProxy] = useState(true);
+      const [openaiKey, setOpenaiKey] = useState("");
+
+      // Data
+      const [struct, setStruct] = useState(null);
+      const [err, setErr] = useState("");
+      const [generating, setGenerating] = useState(false);
+      const [genStage, setGenStage] = useState("");
+
+      // Project creation
+      const [projectStatus, setProjectStatus] = useState({});
+      const [projectIds, setProjectIds] = useState({});
+      const [projectTrackers, setProjectTrackers] = useState({});
+      const [projectErrors, setProjectErrors] = useState({});
+
+      // Req/TC creation
+      const [reqStatus, setReqStatus] = useState({});
+      const [reqErrors, setReqErrors] = useState({});
+      const [reqCounts, setReqCounts] = useState({});
+
+      // Stream creation
+      const [streamStatus, setStreamStatus] = useState({});
+      const [streamIds, setStreamIds] = useState({});
+      const [streamErrors, setStreamErrors] = useState({});
+      const [initialStreamId, setInitialStreamId] = useState(null);
+
+      const domain   = product ? product.domain : customDomain;
+      const industry = product ? product.industry : customIndustry;
+
+      // Load config on mount
+      useEffect(() => {
+        fetch("/api/config").then(r=>r.json()).then(cfg => {
+          if (cfg.cbUrl)  setCbUrl(cfg.cbUrl);
+          if (cfg.cbUser) setCbUser(cfg.cbUser);
+          setBackendHasKey(cfg.hasOpenaiKey);
+        }).catch(()=>{});
+      }, []);
+
+      const updateStruct = (fn) => {
+        setStruct(prev => {
+          const clone = JSON.parse(JSON.stringify(prev));
+          fn(clone);
+          return clone;
+        });
+      };
+
+      // ── OpenAI Generation ────────────────────────────────────────────
+      const buildProjectPrompt = () => {
+        return `You are a world-class ALM architect. Generate technically accurate Codebeamer demo data for:
+Domain: ${domain}
+Industry: ${industry}
+
+CRITICAL: Return ONLY raw valid JSON. No markdown. No backticks. No text outside JSON.
+CRITICAL: All string values max 120 chars. No real newlines inside strings. Use \\n only in steps fields.
+CRITICAL: project_key max 8 alphanumeric/underscore chars. No spaces. No hyphens.
+CRITICAL: No apostrophes in any string value.
+
+Return this exact structure:
+{
+  "domain_name": "short label",
+  "projects": [
+    {
+      "project_key": "MAXEIGHT",
+      "project_name": "Meaningful Subsystem Name",
+      "description": "What this project holds, max 80 chars",
+      "subsystem": "Which subsystem this belongs to",
+      "requirements": [
+        {
+          "title": "The [component] shall [verb] [value+unit] per [standard]",
+          "description": "One sentence technical context max 100 chars.",
+          "priority": "High",
+          "level": "System",
+          "test_cases": [{
+            "title": "Verify [aspect] under [condition]",
+            "description": "Test objective max 80 chars.",
+            "steps": "1. Setup per standard\\n2. Apply stimulus\\n3. Measure with instrument",
+            "expected_result": "Specific measurable criterion with unit and tolerance"
+          }]
+        }
+      ]
+    }
+  ],
+  "pl_projects": [
+    {
+      "project_key": "PLPRJ1",
+      "project_name": "Product-Line-Level Integration Project",
+      "description": "Cross-subsystem integration or validation project specific to this product line",
+      "stream_key": "PL_XXX",
+      "requirements": [
+        {
+          "title": "The [integration aspect] shall [verb] [value+unit] per [standard]",
+          "description": "Cross-subsystem integration requirement, max 100 chars.",
+          "priority": "High",
+          "level": "System",
+          "test_cases": [{
+            "title": "Verify [integration aspect] under [condition]",
+            "description": "Integration test objective max 80 chars.",
+            "steps": "1. Configure subsystems\\n2. Execute integration scenario\\n3. Verify end-to-end",
+            "expected_result": "Specific measurable criterion with unit and tolerance"
+          }]
+        }
+      ]
+    }
+  ],
+  "release_projects": [
+    {
+      "project_key": "RELPRJ1",
+      "project_name": "Release-Specific Verification Project",
+      "description": "Release validation, packaging, or certification project specific to this release",
+      "stream_key": "REL_XXX",
+      "requirements": [
+        {
+          "title": "The [release deliverable] shall [verb] [value+unit] per [standard]",
+          "description": "Release verification requirement, max 100 chars.",
+          "priority": "High",
+          "level": "System",
+          "test_cases": [{
+            "title": "Verify [release aspect] under [condition]",
+            "description": "Release validation test objective max 80 chars.",
+            "steps": "1. Prepare release package\\n2. Execute verification\\n3. Validate compliance",
+            "expected_result": "Specific measurable pass/fail criterion"
+          }]
+        }
+      ]
+    }
+  ],
+  "library_streams": [
+    { "stream_key": "LIB_XXX", "stream_name": "Descriptive Name", "description": "max 80 chars", "project_keys": ["KEY1","KEY2"], "parent_stream_key": null }
+  ],
+  "product_line_streams": [
+    { "stream_key": "PL_XXX", "stream_name": "Descriptive Name", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": null }
+  ],
+  "transform_streams": [
+    { "stream_key": "TR_XXX", "stream_name": "Descriptive Name", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "PL_XXX" }
+  ],
+  "release_streams": [
+    { "stream_key": "REL_XXX", "stream_name": "Fictional Product Release", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "TR_XXX" }
+  ]
+}
+
+STRICT QUANTITIES:
+- projects: exactly 6 (3 subsystem domains x 2 projects each) — these are LIBRARY projects
+- pl_projects: exactly 1 per product_line_stream (2 total). Each has stream_key matching its PL stream
+- release_projects: exactly 1 per release_stream (3 total). Each has stream_key matching its release stream
+- Each library project: exactly 5 requirements, each with 1 test case
+- Each pl_project: exactly 3 requirements, each with 1 test case
+- Each release_project: exactly 3 requirements, each with 1 test case
+- library_streams: exactly 3 (one per subsystem, each references its 2 library projects)
+- product_line_streams: exactly 2 (each references ALL 6 library project keys only)
+- transform_streams: exactly 2 (each references ALL 6 library project keys only, parent = a PL stream)
+- release_streams: exactly 3 (each references ALL 6 library project keys only, parent = a Transform stream)
+
+CONTENT RULES:
+- Use real standards: IEC 60601/62304 for medical, ISO 26262 for automotive, DO-178C for avionics
+- Requirements: shall-style with measurable values, units, tolerances
+- Release stream_name: plausible fictional product names, never real trademarks
+- 3 library streams must cover DISTINCT technical subsystems of ${domain}
+- All keys globally unique, max 8 chars`;
+      };
+
+      const generateProjects = async () => {
+        if (!domain.trim()) return;
+        setGenerating(true);
+        setErr("");
+        setGenStage("Connecting to OpenAI GPT-4o...");
+
+        try {
+          setGenStage("Generating projects, requirements & streams...");
+
+          const payload = {
+            model: "gpt-4o",
+            temperature: 0.3,
+            max_tokens: 8192,
+            messages: [
+              { role: "system", content: "You are a world-class ALM architect. Return ONLY raw valid JSON. No markdown, no code fences, no preamble." },
+              { role: "user", content: buildProjectPrompt() },
+            ],
+          };
+
+          // Always call through backend proxy (credentials stay server-side)
+          const resp = await fetch("/api/openai/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (!resp.ok) {
+            let msg = `OpenAI API returned ${resp.status}`;
+            try { const d = await resp.json(); if (d.error) msg = typeof d.error === 'string' ? d.error : d.error.message; } catch(_) {}
+            throw new Error(msg);
+          }
+          const data = await resp.json();
+          const rawText = data.choices?.[0]?.message?.content || "";
+          if (!rawText.trim()) throw new Error("Empty response from OpenAI");
+
+          setGenStage("Parsing AI response...");
+          const parsed = parseAIJson(rawText);
+          if (!parsed.projects?.length) throw new Error("No projects in AI response");
+
+          // Tag library projects
+          parsed.projects.forEach(p => { p.category = "library"; });
+
+          // Merge PL-specific projects into main array
+          if (parsed.pl_projects?.length) {
+            parsed.pl_projects.forEach(p => { p.category = "product_line"; });
+            parsed.projects = [...parsed.projects, ...parsed.pl_projects];
+          }
+
+          // Merge release-specific projects into main array
+          if (parsed.release_projects?.length) {
+            parsed.release_projects.forEach(p => { p.category = "release"; });
+            parsed.projects = [...parsed.projects, ...parsed.release_projects];
+          }
+
+          // Auto-add PL projects to their PL stream's project_keys
+          for (const plp of (parsed.pl_projects || [])) {
+            const plStream = (parsed.product_line_streams || []).find(s => s.stream_key === plp.stream_key);
+            if (plStream && !plStream.project_keys.includes(plp.project_key)) {
+              plStream.project_keys.push(plp.project_key);
+            }
+          }
+
+          // Auto-add release projects to their release stream's project_keys
+          for (const rlp of (parsed.release_projects || [])) {
+            const relStream = (parsed.release_streams || []).find(s => s.stream_key === rlp.stream_key);
+            if (relStream && !relStream.project_keys.includes(rlp.project_key)) {
+              relStream.project_keys.push(rlp.project_key);
+            }
+          }
+
+          // Initialize Transform streams to mirror PL library selections
+          // and Release streams to mirror Transform + their release projects
+          const libKeys = parsed.projects.filter(p => p.category === "library").map(p => p.project_key);
+          for (const tr of (parsed.transform_streams || [])) {
+            tr.project_keys = [...libKeys];
+          }
+          for (const rel of (parsed.release_streams || [])) {
+            const relProjKeys = rel.project_keys.filter(k =>
+              parsed.projects.some(p => p.project_key === k && p.category === "release")
+            );
+            rel.project_keys = [...libKeys, ...relProjKeys];
+          }
+
+          setStruct(parsed);
+          setProjectStatus({});
+          setProjectIds({});
+          setProjectTrackers({});
+          setProjectErrors({});
+          setReqStatus({});
+          setReqErrors({});
+          setReqCounts({});
+          setStreamStatus({});
+          setStreamIds({});
+          setStreamErrors({});
+          setStep(1);
+        } catch(e) {
+          setErr(e.message);
+        } finally {
+          setGenerating(false);
+          setGenStage("");
+        }
+      };
+
+      // ── CB API Helpers (through local proxy) ─────────────────────────
+      const cbFetch = async (method, path, body = null) => {
+        const url = `/api/cb/v3/${path.replace(/^\/cb\/api\/v3\//, "").replace(/^\//, "")}`;
+        const opts = {
+          method,
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        };
+        if (body) opts.body = JSON.stringify(body);
+        const r = await fetch(url, opts);
+        if (!r.ok) {
+          let detail = "";
+          try { detail = await r.text(); } catch(_) {}
+          throw new Error(`${r.status}: ${detail.substring(0, 300)}`);
+        }
+        const text = await r.text();
+        return text ? JSON.parse(text) : null;
+      };
+      const cbGet  = (path) => cbFetch("GET", path);
+      const cbPost = (path, body) => cbFetch("POST", path, body);
+      const cbPut  = (path, body) => cbFetch("PUT", path, body);
+
+      const cbPostV1 = async (path, body) => {
+        const url = `/api/cb/v1/${path.replace(/^\//, "")}`;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          let detail = "";
+          try { detail = await r.text(); } catch(_) {}
+          throw new Error(`${r.status}: ${detail.substring(0, 300)}`);
+        }
+        const text = await r.text();
+        return text ? JSON.parse(text) : null;
+      };
+
+      // ── Project creation ─────────────────────────────────────────────
+      const createProject = async (idx) => {
+        const p = struct.projects[idx];
+        setProjectStatus(prev => ({ ...prev, [idx]: "creating" }));
+        setProjectErrors(prev => { const n = {...prev}; delete n[idx]; return n; });
+
+        if (DRY_RUN) {
+          // Simulate — no API calls
+          await new Promise(r => setTimeout(r, 300));
+          const fakePid = 10000 + idx;
+          setProjectIds(prev => ({ ...prev, [idx]: fakePid }));
+          setProjectTrackers(prev => ({ ...prev, [idx]: {
+            reqTrackerId: 20000 + idx, tcTrackerId: 30000 + idx, verifiesFieldId: 9999,
+            reqTrackerName: "System Requirement Specification", tcTrackerName: "Test Cases"
+          }}));
+          setProjectStatus(prev => ({ ...prev, [idx]: "done" }));
+          return;
+        }
+
+        try {
+          const result = await cbPostV1("project", {
+            name: p.project_name,
+            keyName: p.project_key.substring(0, 8),
+            description: p.description || p.project_name,
+          });
+          const pid = result?.id || (result?.uri ? parseInt(result.uri.split("/").pop()) : null);
+          if (!pid) throw new Error("No project ID in response");
+
+          const trackers = await cbGet(`projects/${pid}/trackers`);
+          const trackerList = Array.isArray(trackers) ? trackers : (trackers?.trackers || trackers?.items || []);
+
+          // Find trackers — prefer "System Requirement" over "Customer Requirement"
+          let reqTrackerId = null, tcTrackerId = null;
+          let reqTrackerName = "", tcTrackerName = "";
+          let fallbackReqId = null, fallbackReqName = "";
+
+          for (const t of trackerList) {
+            const name = (t.name || "").toLowerCase();
+            if (name.includes("system") && name.includes("requirement")) {
+              reqTrackerId = t.id;
+              reqTrackerName = t.name;
+            }
+            if (name.includes("requirement") && !fallbackReqId) {
+              fallbackReqId = t.id;
+              fallbackReqName = t.name;
+            }
+            if (name.includes("test") && name.includes("case") && !tcTrackerId) {
+              tcTrackerId = t.id;
+              tcTrackerName = t.name;
+            }
+          }
+          if (!reqTrackerId && fallbackReqId) {
+            reqTrackerId = fallbackReqId;
+            reqTrackerName = fallbackReqName;
+          }
+
+          // Discover the Verifies field ID from the TC tracker schema
+          let verifiesFieldId = null;
+          if (tcTrackerId) {
+            try {
+              const schema = await cbGet(`trackers/${tcTrackerId}/schema`);
+              const fields = schema?.fields || schema?.schema?.fields || [];
+              for (const f of fields) {
+                const fn = (f.name || "").toLowerCase();
+                if (fn === "verifies" || fn.includes("verifies")) {
+                  verifiesFieldId = f.id || f.fieldId;
+                  break;
+                }
+              }
+            } catch(_) {
+              console.warn("Could not fetch TC tracker schema for Verifies field discovery");
+            }
+          }
+
+          setProjectIds(prev => ({ ...prev, [idx]: pid }));
+          setProjectTrackers(prev => ({ ...prev, [idx]: {
+            reqTrackerId, tcTrackerId, verifiesFieldId,
+            reqTrackerName, tcTrackerName
+          }}));
+          setProjectStatus(prev => ({ ...prev, [idx]: "done" }));
+        } catch(e) {
+          setProjectStatus(prev => ({ ...prev, [idx]: "error" }));
+          setProjectErrors(prev => ({ ...prev, [idx]: e.message }));
+        }
+      };
+
+      const createAllProjects = async () => {
+        const pending = struct.projects
+          .map((_, i) => i)
+          .filter(i => projectStatus[i] !== "done");
+        await Promise.allSettled(pending.map(i => createProject(i)));
+      };
+
+      const allProjectsCreated = struct?.projects?.length > 0 &&
+        struct.projects.every((_, i) => projectStatus[i] === "done");
+
+      // ── Requirement & TC creation ────────────────────────────────────
+      const createTrackerItems = async (idx) => {
+        setReqStatus(prev => ({ ...prev, [idx]: "creating" }));
+        setReqErrors(prev => { const n = {...prev}; delete n[idx]; return n; });
+        const p = struct.projects[idx];
+        const trackers = projectTrackers[idx];
+        const pid = projectIds[idx];
+
+        if (DRY_RUN) {
+          await new Promise(r => setTimeout(r, 300));
+          const reqs = p.requirements || [];
+          // TC grouping: TC1 covers reqs 0-2, TC2 covers reqs 3+
+          const tcCount = reqs.length > 0 ? (reqs.length <= 3 ? 1 : 2) : 0;
+          const totalTCs = reqs.reduce((sum, req) => sum + (req.test_cases?.length || 0), 0);
+          setReqCounts(prev => ({ ...prev, [idx]: { reqs: reqs.length, tcs: Math.max(tcCount, totalTCs), verifies: reqs.length } }));
+          setReqStatus(prev => ({ ...prev, [idx]: "done" }));
+          return;
+        }
+
+        if (!trackers?.reqTrackerId || !trackers?.tcTrackerId) {
+          setReqStatus(prev => ({ ...prev, [idx]: "error" }));
+          setReqErrors(prev => ({ ...prev, [idx]: `Missing tracker IDs. Found: Req=${trackers?.reqTrackerName || "none"}, TC=${trackers?.tcTrackerName || "none"}` }));
+          return;
+        }
+
+        try {
+          let reqCount = 0, tcCount = 0, verifyCount = 0;
+          const reqs = p.requirements || [];
+          const reqIds = [];
+
+          for (const req of reqs) {
+            const r = await cbPost(`trackers/${trackers.reqTrackerId}/items`, {
+              name: req.title,
+              description: req.description || "",
+            });
+            reqIds.push(r.id);
+            reqCount++;
+          }
+
+          const tcGroups = [reqIds.slice(0, 3), reqIds.slice(3)];
+          for (const group of tcGroups) {
+            if (group.length === 0) continue;
+            const srcReqIdx = reqIds.indexOf(group[0]);
+            const tcData = reqs[srcReqIdx]?.test_cases?.[0];
+            if (!tcData) continue;
+
+            const tc = await cbPost(`trackers/${trackers.tcTrackerId}/items`, {
+              name: tcData.title,
+              description: `${tcData.description || ""}\nSteps: ${tcData.steps || ""}\nExpected: ${tcData.expected_result || ""}`,
+            });
+            tcCount++;
+
+            // Set Verifies field — use discovered field ID, fall back to common IDs
+            const verifiesId = trackers.verifiesFieldId;
+            if (verifiesId) {
+              for (const reqId of group) {
+                try {
+                  await cbPut(`items/${tc.id}/fields`, {
+                    fieldValues: [{
+                      fieldId: verifiesId,
+                      name: "Verifies",
+                      type: "ChoiceFieldValue",
+                      values: [{ id: reqId, type: "TrackerItemReference" }],
+                    }],
+                  });
+                  verifyCount++;
+                } catch(e) {
+                  console.warn(`Verifies link failed for TC ${tc.id} -> Req ${reqId}:`, e.message);
+                }
+              }
+            } else {
+              console.warn(`No Verifies field found for TC tracker ${trackers.tcTrackerId}. Skipping traceability links.`);
+            }
+          }
+
+          setReqCounts(prev => ({ ...prev, [idx]: { reqs: reqCount, tcs: tcCount, verifies: verifyCount } }));
+          setReqStatus(prev => ({ ...prev, [idx]: "done" }));
+        } catch(e) {
+          setReqStatus(prev => ({ ...prev, [idx]: "error" }));
+          setReqErrors(prev => ({ ...prev, [idx]: e.message }));
+        }
+      };
+
+      const createAllReqs = async () => {
+        const pending = struct.projects
+          .map((_, i) => i)
+          .filter(i => reqStatus[i] !== "done");
+        await Promise.allSettled(pending.map(i => createTrackerItems(i)));
+      };
+
+      const allReqsCreated = struct?.projects?.length > 0 &&
+        struct.projects.every((_, i) => reqStatus[i] === "done");
+
+      // ── Stream creation ──────────────────────────────────────────────
+      useEffect(() => {
+        if (step === 3 && !initialStreamId) {
+          if (DRY_RUN) {
+            setInitialStreamId(99999);
+            return;
+          }
+          cbGet("streams/initial")
+            .then(r => {
+              const id = typeof r === "number" ? r : (r?.id || r?.streamId || r);
+              setInitialStreamId(id);
+            })
+            .catch(() => {});
+        }
+      }, [step]);
+
+      // Build a lookup: project_key -> library stream_key that contains it (memoized)
+      const projectToLibraryMap = useMemo(() => {
+        const map = {};
+        for (const lib of (struct?.library_streams || [])) {
+          for (const pk of (lib.project_keys || [])) {
+            map[pk] = lib.stream_key;
+          }
+        }
+        return map;
+      }, [struct?.library_streams]);
+
+      // Keep function form for backward compat in render code
+      const getProjectToLibraryMap = () => projectToLibraryMap;
+
+      // Get the source stream ID for a specific project being added to a stream
+      const getSourceForProject = (tierKey, stream, projectKey) => {
+        if (tierKey === "library_streams") return initialStreamId;
+        if (tierKey === "product_line_streams") {
+          // Each project sources from the library stream it belongs to
+          const libKey = projectToLibraryMap[projectKey];
+          if (libKey && streamIds[libKey]) return streamIds[libKey];
+          // Fallback: first available library stream
+          for (const lib of (struct?.library_streams || [])) {
+            if (streamIds[lib.stream_key]) return streamIds[lib.stream_key];
+          }
+          return initialStreamId;
+        }
+        if (tierKey === "transform_streams") {
+          // Each project sources from the parent PL stream
+          const parentKey = stream.parent_stream_key;
+          return parentKey ? streamIds[parentKey] : null;
+        }
+        if (tierKey === "release_streams") {
+          // Each project sources from the parent Transform stream
+          const parentKey = stream.parent_stream_key;
+          return parentKey ? streamIds[parentKey] : null;
+        }
+        return null;
+      };
+
+      const createStream = async (tierKey, idx) => {
+        const streams = struct[tierKey] || [];
+        const st = streams[idx];
+        const sKey = `${tierKey}_${idx}`;
+        setStreamStatus(prev => ({ ...prev, [sKey]: "creating" }));
+        setStreamErrors(prev => { const n = {...prev}; delete n[sKey]; return n; });
+
+        if (DRY_RUN) {
+          await new Promise(r => setTimeout(r, 200));
+          const fakeSid = 50000 + idx + (tierKey === "product_line_streams" ? 100 : tierKey === "transform_streams" ? 200 : tierKey === "release_streams" ? 300 : 0);
+          setStreamIds(prev => ({ ...prev, [st.stream_key]: fakeSid }));
+          setStreamStatus(prev => ({ ...prev, [sKey]: "done" }));
+          return;
+        }
+
+        try {
+          const parentId = (tierKey === "library_streams" || tierKey === "product_line_streams")
+            ? null
+            : (st.parent_stream_key ? streamIds[st.parent_stream_key] : null);
+
+          const body = { name: st.stream_name, color: "#336699", description: st.description || "" };
+          if (parentId) {
+            body.sourceStreamId = parentId;
+            body.isSourceStreamChecked = true;
+          }
+          const result = await cbPost("streams/stream", body);
+          const sid = result?.id;
+          if (!sid) throw new Error("No stream ID in response");
+
+          setStreamIds(prev => ({ ...prev, [st.stream_key]: sid }));
+
+          // Add each project with its correct per-project source stream
+          let addedCount = 0, failedCount = 0;
+          for (const pk of (st.project_keys || [])) {
+            const pidIdx = struct.projects.findIndex(p => p.project_key === pk);
+            const pid = projectIds[pidIdx];
+            const sourceId = getSourceForProject(tierKey, st, pk);
+            if (pid && sourceId) {
+              try {
+                await cbPut(`streams/${sid}/projects`, {
+                  projectId: pid,
+                  sourceStreamId: sourceId,
+                  addAllTrackers: true,
+                });
+                addedCount++;
+              } catch(e) {
+                failedCount++;
+                console.warn(`Failed to add project ${pk} to stream ${st.stream_key}:`, e.message);
+              }
+            }
+          }
+
+          setStreamStatus(prev => ({ ...prev, [sKey]: "done" }));
+        } catch(e) {
+          setStreamStatus(prev => ({ ...prev, [sKey]: "error" }));
+          setStreamErrors(prev => ({ ...prev, [sKey]: e.message }));
+        }
+      };
+
+      const createAllStreams = async () => {
+        for (const tier of TIERS) {
+          const streams = struct[tier.key] || [];
+          for (let i = 0; i < streams.length; i++) {
+            const sKey = `${tier.key}_${i}`;
+            if (streamStatus[sKey] !== "done") {
+              await createStream(tier.key, i);
+            }
+          }
+        }
+      };
+
+      // ═══════════════════════════════════════════════════════════════
+      // RENDER
+      // ═══════════════════════════════════════════════════════════════
+      return (
+        <div style={{ padding:"0.5rem 0" }}>
+          <div style={{ marginBottom:24 }}>
+            <div style={{ fontSize:20, fontWeight:600, color:"var(--text-primary)" }}>
+              CB Demo Generator v4
+            </div>
+            <div style={{ fontSize:13, color:"var(--text-secondary)", marginTop:4 }}>
+              AI-powered Codebeamer ALM demo provisioning &middot; Local server mode
+            </div>
+            <div style={{ marginTop:8, padding:"6px 12px",
+              background: DRY_RUN ? "#FEF3C7" : "#D1FAE5",
+              border: `1px solid ${DRY_RUN ? "#F59E0B" : "#10B981"}`,
+              borderRadius:6, fontSize:12,
+              color: DRY_RUN ? "#92400E" : "#065F46",
+              display:"flex", alignItems:"center", justifyContent:"space-between",
+            }}>
+              <span>
+                {DRY_RUN
+                  ? "DRY RUN — Create buttons simulate success without calling APIs."
+                  : "LIVE MODE — Create buttons will make real API calls to Codebeamer."}
+              </span>
+              <label style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer", fontWeight:500 }}>
+                <span>{DRY_RUN ? "Dry Run" : "Live"}</span>
+                <input type="checkbox" checked={DRY_RUN}
+                  onChange={(e) => setDryRun(e.target.checked)}
+                  style={{ width:16, height:16, cursor:"pointer" }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <StepBar current={step} />
+
+          {/* ══ Step 0: Product Selection ════════════════════════════ */}
+          {step === 0 && (
+            <div>
+              <div style={{ fontSize:14, fontWeight:500, marginBottom:10 }}>Select a product domain</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:16 }}>
+                {PRODUCTS.map(p => (
+                  <div key={p.id} onClick={() => setProduct(product?.id===p.id ? null : p)}
+                    style={{
+                      padding:"12px 8px", borderRadius:8, cursor:"pointer", textAlign:"center",
+                      border:`1.5px solid ${product?.id===p.id ? "var(--border-primary)" : "var(--border-tertiary)"}`,
+                      background: product?.id===p.id ? "var(--bg-secondary)" : "transparent",
+                      transition:"all 0.15s ease",
+                    }}>
+                    <div style={{ fontSize:22, marginBottom:4 }}>{p.emoji}</div>
+                    <div style={{ fontSize:12, fontWeight:500 }}>{p.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {!product && (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+                  <div>
+                    <div style={{ fontSize:12, color:"var(--text-secondary)", marginBottom:4 }}>Custom domain</div>
+                    <input style={inputStyle} value={customDomain} onChange={e=>setCustomDomain(e.target.value)} placeholder="e.g. X-Ray Imaging Systems" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:12, color:"var(--text-secondary)", marginBottom:4 }}>Industry</div>
+                    <input style={inputStyle} value={customIndustry} onChange={e=>setCustomIndustry(e.target.value)} placeholder="e.g. Medical Device" />
+                  </div>
+                </div>
+              )}
+
+              {product && (
+                <div style={{ padding:"10px 14px", borderRadius:8, background:"var(--bg-secondary)",
+                  border:"1px solid var(--border-tertiary)", fontSize:13, marginBottom:16, color:"var(--text-secondary)" }}>
+                  <strong style={{ color:"var(--text-primary)" }}>{product.emoji} {product.label}</strong>
+                  &nbsp;&middot;&nbsp;{product.domain}&nbsp;&middot;&nbsp;{product.industry}
+                </div>
+              )}
+
+              {/* CB Connection */}
+              <div style={{ fontSize:14, fontWeight:500, marginBottom:8, marginTop:24 }}>Codebeamer connection</div>
+              <div style={{ fontSize:12, color:"var(--text-secondary)", marginBottom:10 }}>
+                Pre-filled from environment variables. Edit if needed. Credentials are sent to the local backend only.
+              </div>
+              <div style={{ display:"grid", gap:10, marginBottom:16 }}>
+                <div>
+                  <div style={{ fontSize:12, color:"var(--text-secondary)", marginBottom:4 }}>CB Base URL</div>
+                  <input style={inputStyle} value={cbUrl} onChange={e=>setCbUrl(e.target.value)} placeholder="https://your-cb-instance.com" />
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                  <div>
+                    <div style={{ fontSize:12, color:"var(--text-secondary)", marginBottom:4 }}>Username</div>
+                    <input style={inputStyle} value={cbUser} onChange={e=>setCbUser(e.target.value)} placeholder="admin" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:12, color:"var(--text-secondary)", marginBottom:4 }}>Password</div>
+                    <input type="password" style={inputStyle} value={cbPass} onChange={e=>setCbPass(e.target.value)} placeholder="password" />
+                  </div>
+                </div>
+              </div>
+
+              {/* OpenAI */}
+              <div style={{ fontSize:14, fontWeight:500, marginBottom:8 }}>OpenAI API Key</div>
+              {useLocalProxy ? (
+                <div style={{ padding:"10px 14px", borderRadius:8, background:"#D1FAE5",
+                  border:"1px solid #A7F3D0", fontSize:12, color:"#065F46", marginBottom:6 }}>
+                  Using OPENAI_API_KEY from server environment variable.
+                  <span onClick={() => setUseLocalProxy(false)}
+                    style={{ marginLeft:8, cursor:"pointer", textDecoration:"underline" }}>
+                    Use a different key
+                  </span>
+                </div>
+              ) : (
+                <div>
+                  <input type="password" style={{...inputStyle, marginBottom:6}} value={openaiKey}
+                    onChange={e=>setOpenaiKey(e.target.value)} placeholder="sk-..." />
+                  <div style={{ fontSize:11, color:"var(--text-tertiary)", marginBottom:6 }}>
+                    Key is sent to the local backend proxy only (never to external servers from the browser).
+                    {" "}
+                    <span onClick={() => setUseLocalProxy(true)}
+                      style={{ cursor:"pointer", textDecoration:"underline", color:"var(--text-secondary)" }}>
+                      Use server env key
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {err && (
+                <div style={{ padding:"10px 14px", background:"var(--bg-danger)", border:"1px solid var(--border-danger)",
+                  borderRadius:8, fontSize:12, color:"var(--text-danger)", marginTop:12, marginBottom:12 }}>
+                  {err}
+                </div>
+              )}
+
+              <div style={{ marginTop:16 }}>
+                <button
+                  style={(!domain.trim() || generating) ? btnDisabled : btnStyle(true)}
+                  disabled={!domain.trim() || generating}
+                  onClick={generateProjects}
+                >
+                  {generating ? genStage : "Generate Projects & Streams"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Step 1: Projects ═════════════════════════════════════ */}
+          {step === 1 && struct && (
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <div>
+                  <div style={{ fontSize:15, fontWeight:500 }}>Projects for {struct.domain_name}</div>
+                  <div style={{ fontSize:12, color:"var(--text-secondary)" }}>
+                    Review and create each project in Codebeamer. Uses default template.
+                  </div>
+                </div>
+                <button style={smallBtnStyle(true)} onClick={createAllProjects}>
+                  Create All
+                </button>
+              </div>
+
+              {/* Render projects grouped by category */}
+              {[
+                { cat: "library", label: "Library Projects", desc: "Core subsystem projects (2 per library stream)", clr: "#0F6E56", bg: "#E1F5EE" },
+                { cat: "product_line", label: "Product Line Projects", desc: "Cross-subsystem integration projects (1 per PL stream)", clr: "#534AB7", bg: "#EEEDFE" },
+                { cat: "release", label: "Release Projects", desc: "Release-specific verification projects (1 per release stream)", clr: "#185FA5", bg: "#E6F1FB" },
+              ].map(group => {
+                const groupProjects = struct.projects.map((p, idx) => ({ ...p, _idx: idx })).filter(p => (p.category || "library") === group.cat);
+                if (!groupProjects.length) return null;
+                return (
+                  <div key={group.cat} style={{ marginBottom:16 }}>
+                    <div style={{
+                      padding:"6px 10px", marginBottom:8, borderRadius:"0 6px 6px 0",
+                      background: group.bg, borderLeft:`3px solid ${group.clr}`,
+                    }}>
+                      <span style={{ fontWeight:500, fontSize:13, color: group.clr }}>{group.label}</span>
+                      <span style={{ fontSize:11, color: group.clr, opacity:.7, marginLeft:8 }}>
+                        ({groupProjects.length}) &mdash; {group.desc}
+                      </span>
+                    </div>
+
+                    {groupProjects.map(p => {
+                      const idx = p._idx;
+                      // Show which stream this PL/release project belongs to
+                      const streamLabel = p.stream_key ? (() => {
+                        const allStreams = [...(struct.product_line_streams||[]), ...(struct.release_streams||[])];
+                        const s = allStreams.find(s => s.stream_key === p.stream_key);
+                        return s ? s.stream_name : p.stream_key;
+                      })() : null;
+
+                      return (
+                        <div key={idx} style={{
+                          marginBottom:8, padding:"12px 14px", borderRadius:8,
+                          border:`1px solid ${group.clr}30`, background:"var(--bg-secondary)",
+                        }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                            <div>
+                              <div style={{ fontSize:14, fontWeight:500 }}>
+                                {p.project_name}
+                                {streamLabel && (
+                                  <span style={{ fontSize:11, fontWeight:400, color: group.clr, marginLeft:8 }}>
+                                    &#8594; {streamLabel}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize:11, color:"var(--text-tertiary)" }}>
+                                Key: {p.project_key} &middot; {p.description}
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                              <StatusBadge status={projectStatus[idx] || "pending"} />
+                              {projectStatus[idx] !== "done" && projectStatus[idx] !== "creating" && (
+                                <button style={smallBtnStyle(true)} onClick={() => createProject(idx)}>Create</button>
+                              )}
+                            </div>
+                          </div>
+
+                          {projectStatus[idx] === "done" && (
+                            <div style={{ fontSize:12, color:"#065F46", background:"#D1FAE5", padding:"6px 10px", borderRadius:6 }}>
+                              Project ID: {projectIds[idx]}
+                              {projectTrackers[idx]?.reqTrackerId && ` | Req: ${projectTrackers[idx].reqTrackerName || projectTrackers[idx].reqTrackerId}`}
+                              {projectTrackers[idx]?.tcTrackerId && ` | TC: ${projectTrackers[idx].tcTrackerName || projectTrackers[idx].tcTrackerId}`}
+                              {projectTrackers[idx]?.verifiesFieldId && ` | Verifies field: ${projectTrackers[idx].verifiesFieldId}`}
+                              {projectTrackers[idx]?.tcTrackerId && !projectTrackers[idx]?.verifiesFieldId && ` | Verifies field: not found`}
+                            </div>
+                          )}
+                          {projectErrors[idx] && (
+                            <div style={{ fontSize:12, color:"#991B1B", background:"#FEE2E2", padding:"6px 10px", borderRadius:6 }}>
+                              {projectErrors[idx]}
+                            </div>
+                          )}
+
+                          {projectStatus[idx] !== "done" && (
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:8, marginTop:8 }}>
+                              <div>
+                                <div style={{ fontSize:11, color:"var(--text-tertiary)", marginBottom:2 }}>Key (max 8)</div>
+                                <input style={{...inputStyle, fontSize:12}} value={p.project_key}
+                                  onChange={e => updateStruct(s => { s.projects[idx].project_key = e.target.value.substring(0,8).replace(/[^a-zA-Z0-9_]/g,""); })} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize:11, color:"var(--text-tertiary)", marginBottom:2 }}>Project Name</div>
+                                <input style={{...inputStyle, fontSize:12}} value={p.project_name}
+                                  onChange={e => updateStruct(s => { s.projects[idx].project_name = e.target.value; })} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+
+              <div style={{ display:"flex", gap:10, marginTop:16 }}>
+                <button style={btnStyle(false)} onClick={() => setStep(0)}>Back</button>
+                <button
+                  style={(allProjectsCreated || DRY_RUN) ? btnStyle(true) : btnDisabled}
+                  disabled={!(allProjectsCreated || DRY_RUN)}
+                  onClick={() => setStep(2)}
+                >
+                  Continue to Requirements
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Step 2: Requirements & Test Cases ═══════════════════ */}
+          {step === 2 && struct && (
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <div>
+                  <div style={{ fontSize:15, fontWeight:500 }}>Requirements & Test Cases</div>
+                  <div style={{ fontSize:12, color:"var(--text-secondary)" }}>
+                    5 requirements + 2 test cases per project. TC1 verifies reqs 1-3, TC2 verifies reqs 4-5.
+                  </div>
+                </div>
+                <button style={smallBtnStyle(true)} onClick={createAllReqs}>
+                  Create All
+                </button>
+              </div>
+
+              {struct.projects.map((p, idx) => {
+                const trackers = projectTrackers[idx];
+                const reqs = p.requirements || [];
+                return (
+                  <div key={idx} style={{
+                    marginBottom:12, padding:"12px 14px", borderRadius:8,
+                    border:"1px solid var(--border-tertiary)", background:"var(--bg-secondary)",
+                  }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                      <div>
+                        <div style={{ fontSize:14, fontWeight:500 }}>{p.project_name}</div>
+                        <div style={{ fontSize:11, color:"var(--text-tertiary)" }}>
+                          {reqs.length} requirements &middot; {trackers?.reqTrackerName || `Req #${trackers?.reqTrackerId}` || "?"} &middot; {trackers?.tcTrackerName || `TC #${trackers?.tcTrackerId}` || "?"} {trackers?.verifiesFieldId ? `(Verifies: field ${trackers.verifiesFieldId})` : "(Verifies: not found)"}
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <StatusBadge status={reqStatus[idx] || "pending"} />
+                        {reqStatus[idx] !== "done" && reqStatus[idx] !== "creating" && (
+                          <button style={smallBtnStyle(true)} onClick={() => createTrackerItems(idx)}>Create Items</button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ maxHeight:200, overflowY:"auto", fontSize:12 }}>
+                      {reqs.map((req, ri) => (
+                        <div key={ri} style={{ padding:"5px 8px", marginBottom:2, borderRadius:4,
+                          background:"var(--bg-primary)", border:"1px solid var(--border-tertiary)" }}>
+                          <div style={{ fontWeight:500 }}>
+                            <span style={{ color:"#854F0B" }}>REQ-{ri+1}</span> {req.title}
+                          </div>
+                          {(req.test_cases || []).map((tc, ti) => (
+                            <div key={ti} style={{ marginLeft:14, color:"var(--text-tertiary)", fontSize:11 }}>
+                              TC: {tc.title}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+
+                    {reqStatus[idx] === "done" && reqCounts[idx] && (
+                      <div style={{ fontSize:12, color:"#065F46", background:"#D1FAE5", padding:"6px 10px", borderRadius:6, marginTop:6 }}>
+                        Created {reqCounts[idx].reqs} requirements, {reqCounts[idx].tcs} test cases, {reqCounts[idx].verifies} verifies links
+                      </div>
+                    )}
+                    {reqErrors[idx] && (
+                      <div style={{ fontSize:12, color:"#991B1B", background:"#FEE2E2", padding:"6px 10px", borderRadius:6, marginTop:6 }}>
+                        {reqErrors[idx]}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div style={{ display:"flex", gap:10, marginTop:16 }}>
+                <button style={btnStyle(false)} onClick={() => setStep(1)}>Back</button>
+                <button
+                  style={(allReqsCreated || DRY_RUN) ? btnStyle(true) : btnDisabled}
+                  disabled={!(allReqsCreated || DRY_RUN)}
+                  onClick={() => setStep(3)}
+                >
+                  Continue to Streams
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Step 3: Streams ══════════════════════════════════════ */}
+          {step === 3 && struct && (
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <div>
+                  <div style={{ fontSize:15, fontWeight:500 }}>Stream Hierarchy</div>
+                  <div style={{ fontSize:12, color:"var(--text-secondary)" }}>
+                    Create in order: Library &rarr; Product Line &rarr; Transform &rarr; Release.
+                    {initialStreamId && <span> Initial Stream ID: <strong>{initialStreamId}</strong></span>}
+                  </div>
+                </div>
+                <button style={smallBtnStyle(true)} onClick={createAllStreams}>
+                  Create All
+                </button>
+              </div>
+
+              {TIERS.map(tier => {
+                const streams = struct[tier.key] || [];
+                if (!streams.length) return null;
+                return (
+                  <div key={tier.key} style={{ marginBottom:16 }}>
+                    <div style={{
+                      padding:"7px 12px", marginBottom:6, borderRadius:"0 6px 6px 0",
+                      background:tier.bg, borderLeft:`3px solid ${tier.clr}`,
+                    }}>
+                      <span style={{ fontWeight:500, fontSize:13, color:tier.clr }}>{tier.label}</span>
+                      <span style={{ fontSize:11, color:tier.clr, opacity:.7, marginLeft:8 }}>({streams.length} streams)</span>
+                    </div>
+
+                    {streams.map((st, idx) => {
+                      const sKey = `${tier.key}_${idx}`;
+                      const status = streamStatus[sKey] || "pending";
+                      const allProjects = struct.projects || [];
+                      const selectedKeys = st.project_keys || [];
+
+                      // For PL/Transform/Release, show which library each project belongs to
+                      const projLibMap = getProjectToLibraryMap();
+
+                      return (
+                        <div key={idx} style={{
+                          marginLeft:12, marginBottom:8, padding:"10px 12px", borderRadius:8,
+                          border:`1px solid ${tier.clr}40`, background:"var(--bg-secondary)",
+                        }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:500 }}>{st.stream_name}</div>
+                              <div style={{ fontSize:11, color:"var(--text-tertiary)" }}>
+                                Key: {st.stream_key}
+                                {st.parent_stream_key && ` | Parent: ${st.parent_stream_key}`}
+                                {` | ${selectedKeys.length} projects selected`}
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                              <StatusBadge status={status} />
+                              {status !== "done" && status !== "creating" && (
+                                <button style={smallBtnStyle(true)} onClick={() => createStream(tier.key, idx)}>Create</button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* ── Library streams: fixed display, no selection ── */}
+                          {tier.key === "library_streams" && status !== "done" && (
+                            <div style={{ marginTop:8, padding:"6px 8px", background:"var(--bg-primary)",
+                              borderRadius:6, border:"1px solid var(--border-tertiary)" }}>
+                              <div style={{ fontSize:11, color:"var(--text-secondary)", marginBottom:4 }}>
+                                Projects (fixed, 2 per library):
+                              </div>
+                              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:2 }}>
+                                {allProjects.filter(p => selectedKeys.includes(p.project_key)).map((p, pi) => (
+                                  <div key={pi} style={{
+                                    display:"flex", alignItems:"center", gap:5, padding:"3px 6px",
+                                    fontSize:11, borderRadius:4, background:`${tier.clr}10`,
+                                  }}>
+                                    <span style={{ color:tier.clr, fontWeight:500 }}>&#9679;</span>
+                                    <span style={{ color:"var(--text-primary)" }}>{p.project_name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ── PL streams: library project selection + PL-specific project ── */}
+                          {tier.key === "product_line_streams" && status !== "done" && (() => {
+                            const plProject = allProjects.find(p => p.category === "product_line" && p.stream_key === st.stream_key);
+                            return (
+                              <div style={{ marginTop:8 }}>
+                                {/* Library project selection */}
+                                <div style={{ padding:"6px 8px", background:"var(--bg-primary)",
+                                  borderRadius:6, border:"1px solid var(--border-tertiary)", marginBottom:6 }}>
+                                  <div style={{ fontSize:11, fontWeight:500, color:"var(--text-secondary)", marginBottom:6 }}>
+                                    Select projects from library streams:
+                                  </div>
+                                  <div>
+                                    {(struct?.library_streams || []).map((lib, li) => {
+                                      const libProjects = allProjects.filter(p => (p.category === "library" || !p.category) && (lib.project_keys || []).includes(p.project_key));
+                                      if (!libProjects.length) return null;
+                                      const allInLibSelected = libProjects.every(p => selectedKeys.includes(p.project_key));
+                                      const someInLibSelected = libProjects.some(p => selectedKeys.includes(p.project_key));
+                                      return (
+                                        <div key={li} style={{
+                                          marginBottom: li < (struct.library_streams.length - 1) ? 8 : 0,
+                                          padding:"6px 8px", borderRadius:6,
+                                          background: someInLibSelected ? "#E1F5EE" : "var(--bg-secondary)",
+                                          border:`1px solid ${someInLibSelected ? "#0F6E5640" : "var(--border-tertiary)"}`,
+                                        }}>
+                                          <label style={{
+                                            display:"flex", alignItems:"center", gap:6, marginBottom:4,
+                                            fontSize:11, fontWeight:600, cursor:"pointer", color:"#0F6E56",
+                                          }}>
+                                            <input type="checkbox"
+                                              checked={allInLibSelected}
+                                              ref={el => { if (el) el.indeterminate = someInLibSelected && !allInLibSelected; }}
+                                              onChange={(e) => {
+                                                updateStruct(s => {
+                                                  let keys = s.product_line_streams[idx].project_keys || [];
+                                                  for (const lp of libProjects) {
+                                                    if (e.target.checked) {
+                                                      if (!keys.includes(lp.project_key)) keys.push(lp.project_key);
+                                                    } else {
+                                                      keys = keys.filter(k => k !== lp.project_key);
+                                                    }
+                                                  }
+                                                  s.product_line_streams[idx].project_keys = keys;
+                                                  // Mirror PL to Transform (library keys only)
+                                                  for (let ti = 0; ti < (s.transform_streams || []).length; ti++) {
+                                                    s.transform_streams[ti].project_keys = [...keys];
+                                                  }
+                                                  // Mirror PL+Transform to Release (library keys only)
+                                                  for (let ri = 0; ri < (s.release_streams || []).length; ri++) {
+                                                    const relExtras = (s.release_streams[ri].project_keys || []).filter(k =>
+                                                      allProjects.some(p => p.project_key === k && p.category === "release")
+                                                    );
+                                                    s.release_streams[ri].project_keys = [...keys, ...relExtras];
+                                                  }
+                                                });
+                                              }}
+                                            />
+                                            {lib.stream_name}
+                                            <span style={{ fontWeight:400, color:"var(--text-tertiary)" }}>
+                                              ({libProjects.filter(p => selectedKeys.includes(p.project_key)).length}/{libProjects.length})
+                                            </span>
+                                          </label>
+                                          <div style={{ marginLeft:18, display:"grid", gridTemplateColumns:"1fr 1fr", gap:1 }}>
+                                            {libProjects.map((p, pi) => {
+                                              const isSelected = selectedKeys.includes(p.project_key);
+                                              return (
+                                                <label key={pi} style={{
+                                                  display:"flex", alignItems:"center", gap:5, padding:"2px 4px",
+                                                  fontSize:11, cursor:"pointer", borderRadius:3,
+                                                  background: isSelected ? `${tier.clr}08` : "transparent",
+                                                }}>
+                                                  <input type="checkbox" checked={isSelected}
+                                                    onChange={(e) => {
+                                                      updateStruct(s => {
+                                                        let keys = s.product_line_streams[idx].project_keys || [];
+                                                        if (e.target.checked) {
+                                                          if (!keys.includes(p.project_key)) keys.push(p.project_key);
+                                                        } else {
+                                                          keys = keys.filter(k => k !== p.project_key);
+                                                        }
+                                                        s.product_line_streams[idx].project_keys = keys;
+                                                        for (let ti = 0; ti < (s.transform_streams || []).length; ti++) {
+                                                          s.transform_streams[ti].project_keys = [...keys];
+                                                        }
+                                                        for (let ri = 0; ri < (s.release_streams || []).length; ri++) {
+                                                          const relExtras = (s.release_streams[ri].project_keys || []).filter(k =>
+                                                            allProjects.some(p2 => p2.project_key === k && p2.category === "release")
+                                                          );
+                                                          s.release_streams[ri].project_keys = [...keys, ...relExtras];
+                                                        }
+                                                      });
+                                                    }}
+                                                  />
+                                                  <span style={{ color:"var(--text-primary)" }}>{p.project_name}</span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* PL-specific project (auto-included) */}
+                                {plProject && (
+                                  <div style={{ padding:"6px 8px", background:"#EEEDFE",
+                                    borderRadius:6, border:"1px solid #534AB740" }}>
+                                    <div style={{ fontSize:11, fontWeight:500, color:"#534AB7", marginBottom:4 }}>
+                                      Product Line project (auto-included):
+                                    </div>
+                                    <div style={{
+                                      display:"flex", alignItems:"center", gap:5, padding:"3px 6px",
+                                      fontSize:11, borderRadius:4, background:"#534AB710",
+                                    }}>
+                                      <span style={{ color:"#534AB7", fontWeight:500 }}>&#9679;</span>
+                                      <span style={{ color:"var(--text-primary)" }}>{plProject.project_name}</span>
+                                      <span style={{ fontSize:10, color:"var(--text-tertiary)", marginLeft:"auto" }}>
+                                        Key: {plProject.project_key}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* ── Transform streams: read-only mirror of PL ── */}
+                          {tier.key === "transform_streams" && status !== "done" && (() => {
+                            // Also include PL-specific projects in the mirror display
+                            const plProjects = allProjects.filter(p => p.category === "product_line");
+                            return (
+                              <div style={{ marginTop:8, padding:"6px 8px", background:"var(--bg-primary)",
+                                borderRadius:6, border:"1px solid var(--border-tertiary)" }}>
+                                <div style={{ fontSize:11, color:"var(--text-secondary)", marginBottom:4 }}>
+                                  Projects (mirrored from Product Line):
+                                </div>
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:2 }}>
+                                  {allProjects.filter(p => selectedKeys.includes(p.project_key)).map((p, pi) => {
+                                    const libKey = projLibMap[p.project_key];
+                                    const libStream = (struct?.library_streams || []).find(l => l.stream_key === libKey);
+                                    return (
+                                      <div key={pi} style={{
+                                        display:"flex", alignItems:"center", gap:5, padding:"3px 6px",
+                                        fontSize:11, borderRadius:4, background:`${tier.clr}10`,
+                                      }}>
+                                        <span style={{ color:tier.clr, fontWeight:500 }}>&#9679;</span>
+                                        <span style={{ color:"var(--text-primary)" }}>{p.project_name}</span>
+                                        {libStream && (
+                                          <span style={{ fontSize:10, color:"var(--text-tertiary)", marginLeft:"auto" }}>
+                                            {libStream.stream_name.length > 18 ? libStream.stream_name.substring(0,18) + "..." : libStream.stream_name}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {plProjects.map((p, pi) => (
+                                    <div key={`pl_${pi}`} style={{
+                                      display:"flex", alignItems:"center", gap:5, padding:"3px 6px",
+                                      fontSize:11, borderRadius:4, background:"#534AB710",
+                                    }}>
+                                      <span style={{ color:"#534AB7", fontWeight:500 }}>&#9679;</span>
+                                      <span style={{ color:"var(--text-primary)" }}>{p.project_name}</span>
+                                      <span style={{ fontSize:10, color:"#534AB7", marginLeft:"auto" }}>PL</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* ── Release streams: mirror Transform + release-specific project + selection ── */}
+                          {tier.key === "release_streams" && status !== "done" && (() => {
+                            const relProject = allProjects.find(p => p.category === "release" && p.stream_key === st.stream_key);
+                            // Library keys currently selected (mirrored from Transform/PL)
+                            const mirroredLibKeys = selectedKeys.filter(k =>
+                              allProjects.some(p => p.project_key === k && (p.category === "library" || !p.category))
+                            );
+                            // PL projects (also mirrored)
+                            const plProjects = allProjects.filter(p => p.category === "product_line");
+                            // Other release projects the user could additionally include
+                            const otherRelProjects = allProjects.filter(p =>
+                              p.category === "release" && p.stream_key !== st.stream_key
+                            );
+                            return (
+                              <div style={{ marginTop:8 }}>
+                                {/* Mirrored projects from Transform (read-only) */}
+                                <div style={{ padding:"6px 8px", background:"var(--bg-primary)",
+                                  borderRadius:6, border:"1px solid var(--border-tertiary)", marginBottom:6 }}>
+                                  <div style={{ fontSize:11, color:"var(--text-secondary)", marginBottom:4 }}>
+                                    Projects (mirrored from Transform):
+                                  </div>
+                                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:2 }}>
+                                    {allProjects.filter(p => mirroredLibKeys.includes(p.project_key)).map((p, pi) => {
+                                      const libKey = projLibMap[p.project_key];
+                                      const libStream = (struct?.library_streams || []).find(l => l.stream_key === libKey);
+                                      return (
+                                        <div key={pi} style={{
+                                          display:"flex", alignItems:"center", gap:5, padding:"3px 6px",
+                                          fontSize:11, borderRadius:4, background:`${tier.clr}10`,
+                                        }}>
+                                          <span style={{ color:tier.clr, fontWeight:500 }}>&#9679;</span>
+                                          <span style={{ color:"var(--text-primary)" }}>{p.project_name}</span>
+                                          {libStream && (
+                                            <span style={{ fontSize:10, color:"var(--text-tertiary)", marginLeft:"auto" }}>
+                                              {libStream.stream_name.length > 15 ? libStream.stream_name.substring(0,15) + "..." : libStream.stream_name}
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                    {plProjects.map((p, pi) => (
+                                      <div key={`pl_${pi}`} style={{
+                                        display:"flex", alignItems:"center", gap:5, padding:"3px 6px",
+                                        fontSize:11, borderRadius:4, background:"#534AB710",
+                                      }}>
+                                        <span style={{ color:"#534AB7", fontWeight:500 }}>&#9679;</span>
+                                        <span style={{ color:"var(--text-primary)" }}>{p.project_name}</span>
+                                        <span style={{ fontSize:10, color:"#534AB7", marginLeft:"auto" }}>PL</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* Release-specific project (auto-included) */}
+                                {relProject && (
+                                  <div style={{ padding:"6px 8px", background:"#E6F1FB",
+                                    borderRadius:6, border:"1px solid #185FA540", marginBottom:6 }}>
+                                    <div style={{ fontSize:11, fontWeight:500, color:"#185FA5", marginBottom:4 }}>
+                                      Release project (auto-included):
+                                    </div>
+                                    <div style={{
+                                      display:"flex", alignItems:"center", gap:5, padding:"3px 6px",
+                                      fontSize:11, borderRadius:4, background:"#185FA510",
+                                    }}>
+                                      <span style={{ color:"#185FA5", fontWeight:500 }}>&#9679;</span>
+                                      <span style={{ color:"var(--text-primary)" }}>{relProject.project_name}</span>
+                                      <span style={{ fontSize:10, color:"var(--text-tertiary)", marginLeft:"auto" }}>
+                                        Key: {relProject.project_key}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Optionally add other release projects */}
+                                {otherRelProjects.length > 0 && (
+                                  <div style={{ padding:"6px 8px", background:"var(--bg-primary)",
+                                    borderRadius:6, border:"1px solid var(--border-tertiary)" }}>
+                                    <div style={{ fontSize:11, fontWeight:500, color:"var(--text-secondary)", marginBottom:4 }}>
+                                      Add other release projects (optional):
+                                    </div>
+                                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:2 }}>
+                                      {otherRelProjects.map((p, pi) => {
+                                        const isSelected = selectedKeys.includes(p.project_key);
+                                        return (
+                                          <label key={pi} style={{
+                                            display:"flex", alignItems:"center", gap:5, padding:"2px 4px",
+                                            fontSize:11, cursor:"pointer", borderRadius:3,
+                                            background: isSelected ? `${tier.clr}08` : "transparent",
+                                          }}>
+                                            <input type="checkbox" checked={isSelected}
+                                              onChange={(e) => {
+                                                updateStruct(s => {
+                                                  const keys = s.release_streams[idx].project_keys || [];
+                                                  if (e.target.checked) {
+                                                    if (!keys.includes(p.project_key)) keys.push(p.project_key);
+                                                  } else {
+                                                    s.release_streams[idx].project_keys = keys.filter(k => k !== p.project_key);
+                                                  }
+                                                });
+                                              }}
+                                            />
+                                            <span style={{ color:"var(--text-primary)" }}>{p.project_name}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Done state */}
+                          {status === "done" && streamIds[st.stream_key] && (
+                            <div style={{ marginTop:6, fontSize:11, color:"#065F46", background:"#D1FAE5", padding:"6px 10px", borderRadius:6 }}>
+                              Stream ID: {streamIds[st.stream_key]}
+                            </div>
+                          )}
+                          {streamErrors[sKey] && (
+                            <div style={{ fontSize:11, color:"#991B1B", background:"#FEE2E2", padding:"4px 8px", borderRadius:4, marginTop:4 }}>
+                              {streamErrors[sKey]}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+
+              <div style={{ display:"flex", gap:10, marginTop:16 }}>
+                <button style={btnStyle(false)} onClick={() => setStep(2)}>Back</button>
+                <button style={btnStyle(true)} onClick={() => setStep(4)}>View Summary</button>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Step 4: Summary ══════════════════════════════════════ */}
+          {step === 4 && struct && (
+            <div>
+              <div style={{ fontSize:16, fontWeight:500, marginBottom:14 }}>
+                Demo Summary: {struct.domain_name}
+              </div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:20 }}>
+                <Stat value={struct.projects?.length || 0} label="Projects" color="#534AB7" />
+                <Stat value={Object.values(reqCounts).reduce((a,c) => a + (c?.reqs||0), 0)} label="Requirements" color="#854F0B" />
+                <Stat value={Object.values(reqCounts).reduce((a,c) => a + (c?.tcs||0), 0)} label="Test Cases" color="#185FA5" />
+                <Stat value={TIERS.reduce((a,t) => a + (struct[t.key]||[]).length, 0)} label="Streams" color="#0F6E56" />
+              </div>
+
+              <div style={{ fontSize:14, fontWeight:500, marginBottom:8 }}>Projects</div>
+              <div style={{ marginBottom:16 }}>
+                {struct.projects.map((p, i) => (
+                  <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"7px 10px",
+                    borderRadius:6, marginBottom:2, background:"var(--bg-secondary)",
+                    border:"1px solid var(--border-tertiary)", fontSize:13 }}>
+                    <span>{p.project_name}</span>
+                    <span style={{ color:"var(--text-tertiary)", fontSize:12 }}>
+                      ID: {projectIds[i] || "\u2014"}
+                      {reqCounts[i] && ` | ${reqCounts[i].reqs} reqs, ${reqCounts[i].tcs} TCs`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ fontSize:14, fontWeight:500, marginBottom:8 }}>Stream Hierarchy</div>
+              {TIERS.map(tier => {
+                const streams = struct[tier.key] || [];
+                if (!streams.length) return null;
+                return (
+                  <div key={tier.key} style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:12, fontWeight:500, color:tier.clr, marginBottom:4, paddingLeft:4 }}>{tier.label}</div>
+                    {streams.map((st, i) => (
+                      <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"5px 10px",
+                        marginLeft:12, marginBottom:2, borderRadius:4, fontSize:12,
+                        borderLeft:`2px solid ${tier.clr}`, background:"var(--bg-secondary)" }}>
+                        <span>{st.stream_name}</span>
+                        <span style={{ color:"var(--text-tertiary)" }}>
+                          ID: {streamIds[st.stream_key] || "\u2014"}
+                          {st.parent_stream_key && ` | Parent: ${st.parent_stream_key}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+
+              <div style={{ marginTop:20, padding:"12px 14px", background:"var(--bg-secondary)",
+                borderRadius:8, borderLeft:"3px solid #1D9E75", fontSize:13, color:"var(--text-secondary)" }}>
+                <div style={{ fontWeight:500, color:"#065F46", marginBottom:4 }}>Next steps in Codebeamer</div>
+                <div>1. Navigate to ALM &gt; Streams and verify the hierarchy.</div>
+                <div>2. Click a Library stream to see its branched projects.</div>
+                <div>3. Edit a requirement in one stream — verify it is independent in other streams.</div>
+                <div>4. Demo merge workflow: propagate changes between streams.</div>
+              </div>
+
+              <button style={{...btnStyle(false), marginTop:16}} onClick={() => { setStep(0); setStruct(null); }}>
+                Start New Demo
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,770 @@
+#!/usr/bin/env python3
+"""Codebeamer Demo Generator
+Domain   : MRI Systems
+Generated: 2026-04-15
+
+Streams Concept:
+  Projects are created ONCE in the Initial Stream.
+  Streams (Library->PL->Transform->Release) form a hierarchy via sourceStreamId.
+  The SAME projects are ADDED to each stream, branching their tracker items.
+  Each stream derives from an explicit parent:
+    Library:   no parent (top-level)
+    PL:        no parent (aggregates from multiple libraries)
+    Transform: parent = specific PL stream
+    Release:   parent = specific Transform stream
+
+APIs used:
+  GET  /v3/streams/initial             -- fetch initial stream ID
+  POST /v3/projects                    -- create project (lives in Initial Stream)
+  POST /v3/projects/{id}/trackers      -- create tracker
+  POST /v3/trackers/{id}/items         -- create tracker item
+  PUT  /v3/items/{id}/fields           -- set Verifies field (ChoiceFieldValue) on TC->REQ
+  POST /v3/streams/stream              -- create stream (sourceStreamId for hierarchy)
+  PUT  /v3/streams/{id}/projects       -- add project to stream (PUT not POST)
+  GET  /v3/projects                    -- list projects (idempotency check)
+  DELETE /v3/projects/{id}             -- delete project (--clean mode)
+  GET  /v3/trackers/types              -- discover tracker type IDs
+  GET  /v3/items/{id}/fields           -- discover Verifies field ID
+"""
+
+import os, requests, time, sys, argparse
+from requests.auth import HTTPBasicAuth
+
+# ─── CLI flags ────────────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser(description="Codebeamer Demo Generator")
+parser.add_argument("--dry-run", action="store_true", help="Print plan without making API calls")
+parser.add_argument("--clean", action="store_true", help="Delete existing demo projects before recreating")
+args = parser.parse_args()
+DRY_RUN = args.dry_run
+CLEAN   = args.clean
+
+CB_URL = os.environ.get("CB_URL",  "") or "https://pp-260127042638.portal.ptc.io:9443"
+USER   = os.environ.get("CB_USER", "") or "pat"
+PASS   = os.environ.get("CB_PASS", "")  # NEVER hardcoded — always use env var
+
+if not USER or not PASS:
+    print("ERROR: Codebeamer credentials not set.")
+    print("  Option 1: export CB_USER=<user> CB_PASS=<pass>")
+    print("  Option 2: export CB_URL=<url> CB_USER=<user> CB_PASS=<pass>")
+    sys.exit(1)
+
+REQ_TYPE_ID          = 5    # Requirements tracker type
+TC_TYPE_ID           = 102  # Test Cases tracker type
+VERIFIES_FIELD_ID    = 17   # 'Verifies' field (ChoiceFieldValue) on Test Cases tracker
+STREAM_COLOR         = "#336699"  # required field in CreateStream schema
+
+AUTH    = HTTPBasicAuth(USER, PASS)
+HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+BASE    = f"{CB_URL}/cb/api"
+
+MAX_RETRIES    = 4
+BACKOFF_BASE   = 1.0
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+
+def _request(method, path, body=None):
+    """Unified HTTP caller with exponential-backoff retry on 429 / 5xx."""
+    url = f"{BASE}{path}"
+    for attempt in range(MAX_RETRIES + 1):
+        kwargs = {"auth": AUTH, "headers": HEADERS}
+        if body is not None:
+            kwargs["json"] = body
+        r = getattr(requests, method)(url, **kwargs)
+        if r.status_code not in RETRY_STATUSES or attempt == MAX_RETRIES:
+            r.raise_for_status()
+            return r.json() if r.content else None
+        wait = BACKOFF_BASE * (2 ** attempt)
+        if r.status_code == 429:
+            try: wait = float(r.headers.get("Retry-After", wait))
+            except (ValueError, TypeError): pass
+        print(f"  … {r.status_code} on {method.upper()} {path} — retry {attempt+1}/{MAX_RETRIES} in {wait:.1f}s")
+        time.sleep(wait)
+    return None
+
+def _get(path):           return _request("get", path)
+def _post(path, body):    return _request("post", path, body)
+def _put(path, body):     return _request("put", path, body)
+def _delete(path):        return _request("delete", path)
+
+def ok(msg):   print(f"  + {msg}")
+def warn(msg): print(f"  ! {msg}")
+
+# ─── Auto-discovery ─────────────────────────────────────────────────────────
+def discover_tracker_types():
+    """GET /v3/trackers/types — scan for Requirement and Test Case type IDs."""
+    try:
+        types = _get("/v3/trackers/types")
+        if isinstance(types, dict):
+            types = types.get("types", types.get("items", []))
+        req_id, tc_id = None, None
+        for t in types:
+            name = (t.get("name") or "").lower()
+            tid = t.get("id")
+            if "requirement" in name and req_id is None:
+                req_id = tid
+            elif "test" in name and "case" in name and tc_id is None:
+                tc_id = tid
+        if req_id and tc_id:
+            ok(f"[DISCOVER] Tracker types: REQ={req_id}, TC={tc_id}")
+        return req_id, tc_id
+    except Exception as e:
+        warn(f"[DISCOVER] Could not fetch tracker types: {e}")
+        return None, None
+
+def discover_verifies_field(tc_tracker_id, project_id):
+    """Create temp TC item, read fields, find Verifies field ID, delete temp item."""
+    if not tc_tracker_id or not project_id:
+        return None
+    temp_id = None
+    try:
+        r = _post(f"/v3/trackers/{tc_tracker_id}/items", {
+            "name": "_discover_verifies_temp",
+            "description": "Temporary item for field discovery — safe to delete"
+        })
+        temp_id = r["id"]
+        fields = _get(f"/v3/items/{temp_id}/fields")
+        if isinstance(fields, dict):
+            fields = fields.get("fieldValues", fields.get("fields", []))
+        for f in fields:
+            name = (f.get("name") or "").lower()
+            if "verif" in name:
+                fid = f.get("fieldId") or f.get("id")
+                if fid:
+                    ok(f"[DISCOVER] Verifies field ID = {fid}")
+                    return fid
+    except Exception as e:
+        warn(f"[DISCOVER] Could not discover Verifies field: {e}")
+    finally:
+        if temp_id:
+            try: _delete(f"/v3/items/{temp_id}")
+            except Exception: pass
+    return None
+
+def find_project(key):
+    """GET /v3/projects — scan for a project matching keyName."""
+    try:
+        projects = _get("/v3/projects")
+        if isinstance(projects, dict):
+            projects = projects.get("projects", projects.get("items", []))
+        for p in projects:
+            if p.get("keyName") == key or p.get("name", "").startswith(key):
+                return p["id"]
+    except Exception: pass
+    return None
+
+def delete_project(pid):
+    """DELETE /v3/projects/{id}."""
+    if DRY_RUN:
+        ok(f"[DRY-RUN] Would delete project {pid}")
+        return
+    try:
+        _delete(f"/v3/projects/{pid}")
+        ok(f"[CLEAN] Deleted project {pid}")
+    except Exception as e:
+        warn(f"[CLEAN] Could not delete project {pid}: {e}")
+
+def mk_project(name, key, desc=""):
+    """POST /v3/projects (idempotent: reuses existing if found)."""
+    existing = find_project(key[:8])
+    if existing:
+        if CLEAN:
+            delete_project(existing)
+        else:
+            ok(f"[PROJECT] {name}  id={existing} (already exists, reusing)")
+            return existing
+    if DRY_RUN:
+        ok(f"[DRY-RUN] Would create project: {name} [{key[:8]}]")
+        return None
+    try:
+        r = _post("/v3/projects", {"name": name, "keyName": key[:8], "description": desc})
+        ok(f"[PROJECT] {name}  id={r['id']}")
+        return r["id"]
+    except Exception as e:
+        warn(f"[PROJECT] {name}: {e}")
+        return None
+
+def mk_tracker(project_id, name, key, type_id):
+    """POST /v3/projects/{projectId}/trackers."""
+    if not project_id: return None
+    if DRY_RUN:
+        ok(f"  [DRY-RUN] Would create tracker: {name} [{key[:8]}]")
+        return None
+    try:
+        r = _post(f"/v3/projects/{project_id}/trackers",
+                  {"name": name, "keyName": key[:8], "type": {"id": type_id}})
+        ok(f"  [TRACKER] {name}  id={r['id']}")
+        return r["id"]
+    except Exception as e:
+        warn(f"  [TRACKER] {name}: {e}")
+        return None
+
+def mk_item(tracker_id, name, desc=""):
+    """POST /v3/trackers/{trackerId}/items."""
+    if not tracker_id: return None
+    if DRY_RUN:
+        ok(f"    [DRY-RUN] Would create item: {name[:50]}")
+        return None
+    try:
+        r = _post(f"/v3/trackers/{tracker_id}/items", {"name": name, "description": desc})
+        return r["id"]
+    except Exception as e:
+        warn(f"    [ITEM] {name[:50]}: {e}")
+        return None
+
+def set_verifies(tc_id, req_id):
+    """PUT /v3/items/{itemId}/fields — sets the Verifies field on a test case.
+    Returns True on success, False on failure."""
+    if not tc_id or not req_id: return False
+    if DRY_RUN:
+        ok(f"    [DRY-RUN] Would link TC {tc_id} --verifies--> REQ {req_id}")
+        return True
+    try:
+        _put(f"/v3/items/{tc_id}/fields", {
+            "fieldValues": [{
+                "fieldId": VERIFIES_FIELD_ID,
+                "name": "Verifies",
+                "type": "ChoiceFieldValue",
+                "values": [{"id": req_id, "type": "TrackerItemReference"}]
+            }]
+        })
+        ok(f"    [VERIFIES] TC {tc_id} --verifies--> REQ {req_id}")
+        return True
+    except Exception as e:
+        warn(f"    [VERIFIES] TC {tc_id} -> REQ {req_id}: {e}")
+        return False
+
+def mk_stream(name, desc="", source_id=None):
+    """POST /v3/streams/stream — create stream with optional parent."""
+    if DRY_RUN:
+        parent_info = f"  parent={source_id}" if source_id else ""
+        ok(f"[DRY-RUN] Would create stream: {name}{parent_info}")
+        return None
+    try:
+        body = {"name": name, "color": STREAM_COLOR, "description": desc}
+        if source_id:
+            body["sourceStreamId"] = source_id
+            body["isSourceStreamChecked"] = True
+        r = _post("/v3/streams/stream", body)
+        parent_info = f"  parent={source_id}" if source_id else ""
+        ok(f"[STREAM] {name}  id={r['id']}{parent_info}")
+        return r["id"]
+    except Exception as e:
+        warn(f"[STREAM] {name}: {e} -- create manually: ALM > Streams > New")
+        return None
+
+def mk_stream_project(stream_id, project_id, initial_stream_id):
+    """PUT /v3/streams/{streamId}/projects — add existing project to stream."""
+    if not stream_id or not project_id: return
+    if DRY_RUN:
+        ok(f"  [DRY-RUN] Would add project {project_id} to stream {stream_id}")
+        return
+    try:
+        _put(f"/v3/streams/{stream_id}/projects", {
+            "projectId":      project_id,
+            "sourceStreamId": initial_stream_id,
+            "addAllTrackers": True
+        })
+        ok(f"  [STREAM-PROJ] project {project_id} added to stream {stream_id}")
+    except Exception as e:
+        warn(f"  [STREAM-PROJ] p{project_id}->s{stream_id}: {e}")
+print("=" * 58)
+print(f"CB Demo: MRI Systems")
+if DRY_RUN: print("  ** DRY-RUN MODE — no API calls will be made **")
+if CLEAN:   print("  ** CLEAN MODE — existing projects will be deleted first **")
+print("=" * 58)
+
+if not DRY_RUN:
+    print("\n[INIT] Fetching initial stream ID...")
+    try:
+        INITIAL_STREAM_ID = _get("/v3/streams/initial")
+        if isinstance(INITIAL_STREAM_ID, dict):
+            INITIAL_STREAM_ID = INITIAL_STREAM_ID.get("id", INITIAL_STREAM_ID)
+        ok(f"Initial stream ID = {INITIAL_STREAM_ID}")
+    except Exception as e:
+        warn(f"Cannot fetch initial stream ID: {e}")
+        sys.exit(1)
+else:
+    INITIAL_STREAM_ID = None
+    ok("[DRY-RUN] Skipping initial stream fetch")
+
+# ─── Auto-discover tracker type IDs and Verifies field ID ──────────────
+if not DRY_RUN:
+    print("\n[DISCOVER] Auto-detecting tracker types and field IDs...")
+    _req_type, _tc_type = discover_tracker_types()
+    if _req_type: REQ_TYPE_ID = _req_type
+    if _tc_type:  TC_TYPE_ID  = _tc_type
+    if not _req_type or not _tc_type:
+        warn(f"Using defaults: REQ_TYPE_ID={REQ_TYPE_ID}, TC_TYPE_ID={TC_TYPE_ID}")
+else:
+    ok("[DRY-RUN] Skipping auto-discovery, using defaults")
+
+_verifies_discovered = False
+
+# ─── Execution tracking ────────────────────────────────────────────────
+_counts = {"streams": 0, "projects": 0, "trackers": 0, "requirements": 0, "test_cases": 0, "verifies": 0, "stream_project_links": 0}
+_errors = []
+
+# Project key -> CB project ID mapping (Phase 1 populates, Phase 2 uses)
+_project_ids = {}
+
+# Stream key -> CB stream ID mapping (for parent_stream_key resolution)
+_stream_ids = {}
+
+# ══════════════════════════════════════════════════════════════════════
+# PHASE 1: Create all projects (in Initial Stream)
+# ══════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 58)
+print("PHASE 1: Creating Projects, Trackers, Requirements, Test Cases")
+print("=" * 58)
+
+# ── Project: Magnet Subsystem Requirements ──
+pid_MAGSYS = mk_project("Magnet Subsystem Requirements", "MAGSYS", "System-level requirements for superconducting magnet and cryogenics")
+if pid_MAGSYS:
+    _counts["projects"] += 1
+    _project_ids["MAGSYS"] = pid_MAGSYS
+else: _errors.append(("project", "Magnet Subsystem Requirements", "mk_project returned None"))
+rtid_pid_MAGSYS = mk_tracker(pid_MAGSYS, "Requirements", "REQ", REQ_TYPE_ID)
+if rtid_pid_MAGSYS: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Requirements for Magnet Subsystem Requirements", "mk_tracker returned None"))
+ttid_pid_MAGSYS = mk_tracker(pid_MAGSYS, "Test Cases", "TC", TC_TYPE_ID)
+if ttid_pid_MAGSYS: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Test Cases for Magnet Subsystem Requirements", "mk_tracker returned None"))
+if not _verifies_discovered and ttid_pid_MAGSYS and not DRY_RUN:
+    _vf = discover_verifies_field(ttid_pid_MAGSYS, pid_MAGSYS)
+    if _vf: VERIFIES_FIELD_ID = _vf
+    else: warn(f"Using default VERIFIES_FIELD_ID={VERIFIES_FIELD_ID}")
+    _verifies_discovered = True
+rid_pid_MAGSYS_0 = mk_item(rtid_pid_MAGSYS, "The magnet shall maintain field homogeneity within 0.5 ppm over a 50 cm DSV per IEC 62464-1", "Ensures image quality by constraining static field uniformity across the imaging volume.")
+if rid_pid_MAGSYS_0: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The magnet shall maintain field homogeneity within 0.5 ppm o", "mk_item returned None"))
+if rid_pid_MAGSYS_0:
+    tcid_pid_MAGSYS_0_0 = mk_item(ttid_pid_MAGSYS, "Verify field homogeneity across 50 cm DSV at 1.5T and 3T", "Measure B0 homogeneity using a spherical phantom and NMR probe array. Steps: 1. Position calibrated phantom at magnet isocenter 2. Acquire field map using NMR probe array 3. Compute peak-to-peak ppm variation over 50 cm DSV Expected: Field homogeneity less than or equal to 0.5 ppm peak-to-peak over 50 cm DSV")
+    if tcid_pid_MAGSYS_0_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_MAGSYS_0_0, rid_pid_MAGSYS_0): _counts["verifies"] += 1
+rid_pid_MAGSYS_1 = mk_item(rtid_pid_MAGSYS, "The cryostat shall maintain helium boil-off rate below 0.03 L/hr per IEC 60601-2-33", "Limits operational cost and ensures thermal stability of the superconducting coil.")
+if rid_pid_MAGSYS_1: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The cryostat shall maintain helium boil-off rate below 0.03 ", "mk_item returned None"))
+if rid_pid_MAGSYS_1:
+    tcid_pid_MAGSYS_1_0 = mk_item(ttid_pid_MAGSYS, "Verify helium boil-off rate under steady-state thermal load", "Measure LHe consumption rate over 72 hours of continuous operation. Steps: 1. Fill cryostat to nominal level 2. Operate magnet at rated current for 72 hours 3. Record helium level at 1-hour intervals Expected: Average boil-off rate does not exceed 0.03 L/hr over 72-hour test period")
+    if tcid_pid_MAGSYS_1_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_MAGSYS_1_0, rid_pid_MAGSYS_1): _counts["verifies"] += 1
+
+# ── Project: Magnet Performance Validation ──
+pid_MAGPERF = mk_project("Magnet Performance Validation", "MAGPERF", "Performance and stress testing for magnet subsystem under fault conditions")
+if pid_MAGPERF:
+    _counts["projects"] += 1
+    _project_ids["MAGPERF"] = pid_MAGPERF
+else: _errors.append(("project", "Magnet Performance Validation", "mk_project returned None"))
+rtid_pid_MAGPERF = mk_tracker(pid_MAGPERF, "Requirements", "REQ", REQ_TYPE_ID)
+if rtid_pid_MAGPERF: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Requirements for Magnet Performance Validation", "mk_tracker returned None"))
+ttid_pid_MAGPERF = mk_tracker(pid_MAGPERF, "Test Cases", "TC", TC_TYPE_ID)
+if ttid_pid_MAGPERF: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Test Cases for Magnet Performance Validation", "mk_tracker returned None"))
+if not _verifies_discovered and ttid_pid_MAGPERF and not DRY_RUN:
+    _vf = discover_verifies_field(ttid_pid_MAGPERF, pid_MAGPERF)
+    if _vf: VERIFIES_FIELD_ID = _vf
+    else: warn(f"Using default VERIFIES_FIELD_ID={VERIFIES_FIELD_ID}")
+    _verifies_discovered = True
+rid_pid_MAGPERF_0 = mk_item(rtid_pid_MAGPERF, "The quench protection circuit shall discharge stored energy within 8 seconds per IEC 62464-1", "Prevents coil damage during an unplanned loss of superconductivity.")
+if rid_pid_MAGPERF_0: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The quench protection circuit shall discharge stored energy ", "mk_item returned None"))
+if rid_pid_MAGPERF_0:
+    tcid_pid_MAGPERF_0_0 = mk_item(ttid_pid_MAGPERF, "Verify quench discharge time under simulated fault", "Trigger controlled quench and measure energy dissipation timeline. Steps: 1. Charge magnet to full operating current 2. Trigger quench via heater activation 3. Record coil voltage and current decay waveform Expected: Stored energy fully discharged within 8 seconds with coil temperature below 150 K")
+    if tcid_pid_MAGPERF_0_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_MAGPERF_0_0, rid_pid_MAGPERF_0): _counts["verifies"] += 1
+rid_pid_MAGPERF_1 = mk_item(rtid_pid_MAGPERF, "The magnet shall recover to rated field within 4 hours after a controlled ramp-down per IEC 60601-2-33", "Ensures clinical availability after planned maintenance shutdowns.")
+if rid_pid_MAGPERF_1: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The magnet shall recover to rated field within 4 hours after", "mk_item returned None"))
+if rid_pid_MAGPERF_1:
+    tcid_pid_MAGPERF_1_0 = mk_item(ttid_pid_MAGPERF, "Verify magnet ramp-up time from zero to rated current", "Measure total time from cold start to stable imaging field. Steps: 1. Perform controlled ramp-down to zero current 2. Initiate ramp-up sequence per operating procedure 3. Monitor field stability at rated current Expected: Magnet reaches rated field with homogeneity within spec in 4 hours or less")
+    if tcid_pid_MAGPERF_1_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_MAGPERF_1_0, rid_pid_MAGPERF_1): _counts["verifies"] += 1
+
+# ── Project: RF Subsystem Requirements ──
+pid_RFSYS = mk_project("RF Subsystem Requirements", "RFSYS", "Requirements for RF transmit and receive chain including coils and amplifiers")
+if pid_RFSYS:
+    _counts["projects"] += 1
+    _project_ids["RFSYS"] = pid_RFSYS
+else: _errors.append(("project", "RF Subsystem Requirements", "mk_project returned None"))
+rtid_pid_RFSYS = mk_tracker(pid_RFSYS, "Requirements", "REQ", REQ_TYPE_ID)
+if rtid_pid_RFSYS: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Requirements for RF Subsystem Requirements", "mk_tracker returned None"))
+ttid_pid_RFSYS = mk_tracker(pid_RFSYS, "Test Cases", "TC", TC_TYPE_ID)
+if ttid_pid_RFSYS: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Test Cases for RF Subsystem Requirements", "mk_tracker returned None"))
+if not _verifies_discovered and ttid_pid_RFSYS and not DRY_RUN:
+    _vf = discover_verifies_field(ttid_pid_RFSYS, pid_RFSYS)
+    if _vf: VERIFIES_FIELD_ID = _vf
+    else: warn(f"Using default VERIFIES_FIELD_ID={VERIFIES_FIELD_ID}")
+    _verifies_discovered = True
+rid_pid_RFSYS_0 = mk_item(rtid_pid_RFSYS, "The RF amplifier shall deliver peak power of 35 kW with gain flatness within 1 dB per IEC 60601-2-33", "Ensures uniform excitation across the imaging volume for consistent signal.")
+if rid_pid_RFSYS_0: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The RF amplifier shall deliver peak power of 35 kW with gain", "mk_item returned None"))
+if rid_pid_RFSYS_0:
+    tcid_pid_RFSYS_0_0 = mk_item(ttid_pid_RFSYS, "Verify RF amplifier output power and gain flatness at 127.7 MHz", "Measure amplifier output across operating bandwidth using network analyzer. Steps: 1. Connect RF amplifier to calibrated load 2. Sweep input signal across 127.7 MHz +/- 500 kHz 3. Record output power and compute gain variation Expected: Peak output power at least 35 kW with gain flatness within 1 dB across bandwidth")
+    if tcid_pid_RFSYS_0_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_RFSYS_0_0, rid_pid_RFSYS_0): _counts["verifies"] += 1
+rid_pid_RFSYS_1 = mk_item(rtid_pid_RFSYS, "The body coil shall achieve B1 uniformity within 10 percent over 40 cm FOV per IEC 62464-1", "Ensures consistent flip angle distribution for diagnostic image quality.")
+if rid_pid_RFSYS_1: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The body coil shall achieve B1 uniformity within 10 percent ", "mk_item returned None"))
+if rid_pid_RFSYS_1:
+    tcid_pid_RFSYS_1_0 = mk_item(ttid_pid_RFSYS, "Verify B1 field uniformity using flip angle mapping", "Acquire B1 map with uniform phantom and quantify spatial variation. Steps: 1. Place cylindrical phantom at isocenter 2. Run double-angle B1 mapping sequence 3. Compute coefficient of variation across 40 cm FOV Expected: B1 coefficient of variation does not exceed 10 percent over 40 cm FOV")
+    if tcid_pid_RFSYS_1_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_RFSYS_1_0, rid_pid_RFSYS_1): _counts["verifies"] += 1
+
+# ── Project: RF Performance Validation ──
+pid_RFPERF = mk_project("RF Performance Validation", "RFPERF", "Performance validation of RF chain including SAR compliance and thermal limits")
+if pid_RFPERF:
+    _counts["projects"] += 1
+    _project_ids["RFPERF"] = pid_RFPERF
+else: _errors.append(("project", "RF Performance Validation", "mk_project returned None"))
+rtid_pid_RFPERF = mk_tracker(pid_RFPERF, "Requirements", "REQ", REQ_TYPE_ID)
+if rtid_pid_RFPERF: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Requirements for RF Performance Validation", "mk_tracker returned None"))
+ttid_pid_RFPERF = mk_tracker(pid_RFPERF, "Test Cases", "TC", TC_TYPE_ID)
+if ttid_pid_RFPERF: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Test Cases for RF Performance Validation", "mk_tracker returned None"))
+if not _verifies_discovered and ttid_pid_RFPERF and not DRY_RUN:
+    _vf = discover_verifies_field(ttid_pid_RFPERF, pid_RFPERF)
+    if _vf: VERIFIES_FIELD_ID = _vf
+    else: warn(f"Using default VERIFIES_FIELD_ID={VERIFIES_FIELD_ID}")
+    _verifies_discovered = True
+rid_pid_RFPERF_0 = mk_item(rtid_pid_RFPERF, "The RF system shall limit whole-body SAR to 2.0 W/kg in normal mode per IEC 60601-2-33", "Ensures patient safety by constraining RF energy deposition rate.")
+if rid_pid_RFPERF_0: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The RF system shall limit whole-body SAR to 2.0 W/kg in norm", "mk_item returned None"))
+if rid_pid_RFPERF_0:
+    tcid_pid_RFPERF_0_0 = mk_item(ttid_pid_RFPERF, "Verify SAR calculation accuracy against calorimetric measurement", "Compare predicted SAR model output with phantom calorimetry results. Steps: 1. Run high-SAR sequence on gel phantom with embedded thermocouples 2. Record temperature rise over 6-minute averaging window 3. Compare measured SAR to system-reported SAR Expected: System-reported SAR within 10 percent of calorimetric measurement, both below 2.0 W/kg")
+    if tcid_pid_RFPERF_0_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_RFPERF_0_0, rid_pid_RFPERF_0): _counts["verifies"] += 1
+rid_pid_RFPERF_1 = mk_item(rtid_pid_RFPERF, "The receive coil preamplifier shall achieve noise figure below 0.5 dB per IEC 62464-1", "Maximizes signal-to-noise ratio for diagnostic image quality.")
+if rid_pid_RFPERF_1: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The receive coil preamplifier shall achieve noise figure bel", "mk_item returned None"))
+if rid_pid_RFPERF_1:
+    tcid_pid_RFPERF_1_0 = mk_item(ttid_pid_RFPERF, "Verify preamplifier noise figure at operating frequency", "Measure noise figure using Y-factor method with calibrated noise source. Steps: 1. Connect preamplifier to noise figure meter 2. Perform Y-factor measurement at 127.7 MHz 3. Record noise figure across 3 sample coil elements Expected: Noise figure below 0.5 dB for all tested preamplifier channels")
+    if tcid_pid_RFPERF_1_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_RFPERF_1_0, rid_pid_RFPERF_1): _counts["verifies"] += 1
+
+# ── Project: Gradient Subsystem Requirements ──
+pid_GRDSYS = mk_project("Gradient Subsystem Requirements", "GRDSYS", "Requirements for gradient coils, amplifiers, and cooling systems")
+if pid_GRDSYS:
+    _counts["projects"] += 1
+    _project_ids["GRDSYS"] = pid_GRDSYS
+else: _errors.append(("project", "Gradient Subsystem Requirements", "mk_project returned None"))
+rtid_pid_GRDSYS = mk_tracker(pid_GRDSYS, "Requirements", "REQ", REQ_TYPE_ID)
+if rtid_pid_GRDSYS: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Requirements for Gradient Subsystem Requirements", "mk_tracker returned None"))
+ttid_pid_GRDSYS = mk_tracker(pid_GRDSYS, "Test Cases", "TC", TC_TYPE_ID)
+if ttid_pid_GRDSYS: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Test Cases for Gradient Subsystem Requirements", "mk_tracker returned None"))
+if not _verifies_discovered and ttid_pid_GRDSYS and not DRY_RUN:
+    _vf = discover_verifies_field(ttid_pid_GRDSYS, pid_GRDSYS)
+    if _vf: VERIFIES_FIELD_ID = _vf
+    else: warn(f"Using default VERIFIES_FIELD_ID={VERIFIES_FIELD_ID}")
+    _verifies_discovered = True
+rid_pid_GRDSYS_0 = mk_item(rtid_pid_GRDSYS, "The gradient system shall achieve slew rate of 200 T/m/s per axis per IEC 60601-2-33", "Enables fast imaging sequences such as EPI and diffusion-weighted imaging.")
+if rid_pid_GRDSYS_0: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The gradient system shall achieve slew rate of 200 T/m/s per", "mk_item returned None"))
+if rid_pid_GRDSYS_0:
+    tcid_pid_GRDSYS_0_0 = mk_item(ttid_pid_GRDSYS, "Verify gradient slew rate on all three axes", "Measure rise time from 0 to maximum amplitude on each gradient axis. Steps: 1. Program trapezoidal gradient pulse at maximum amplitude 2. Capture gradient waveform using calibrated pickup coils 3. Compute slew rate as max amplitude divided by rise time Expected: Measured slew rate at least 200 T/m/s on each of X, Y, and Z axes")
+    if tcid_pid_GRDSYS_0_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_GRDSYS_0_0, rid_pid_GRDSYS_0): _counts["verifies"] += 1
+rid_pid_GRDSYS_1 = mk_item(rtid_pid_GRDSYS, "The gradient coil shall produce maximum amplitude of 45 mT/m per IEC 60601-2-33", "Provides spatial encoding resolution needed for high-resolution clinical imaging.")
+if rid_pid_GRDSYS_1: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The gradient coil shall produce maximum amplitude of 45 mT/m", "mk_item returned None"))
+if rid_pid_GRDSYS_1:
+    tcid_pid_GRDSYS_1_0 = mk_item(ttid_pid_GRDSYS, "Verify maximum gradient amplitude using field probe measurement", "Measure actual gradient field strength at known offset positions. Steps: 1. Position field probes at +/- 20 cm from isocenter on each axis 2. Apply maximum gradient pulse on each axis 3. Compute gradient amplitude from measured field difference Expected: Gradient amplitude at least 45 mT/m on all three axes")
+    if tcid_pid_GRDSYS_1_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_GRDSYS_1_0, rid_pid_GRDSYS_1): _counts["verifies"] += 1
+
+# ── Project: Gradient Performance Validation ──
+pid_GRDPERF = mk_project("Gradient Performance Validation", "GRDPERF", "Acoustic noise, thermal, and peripheral nerve stimulation validation")
+if pid_GRDPERF:
+    _counts["projects"] += 1
+    _project_ids["GRDPERF"] = pid_GRDPERF
+else: _errors.append(("project", "Gradient Performance Validation", "mk_project returned None"))
+rtid_pid_GRDPERF = mk_tracker(pid_GRDPERF, "Requirements", "REQ", REQ_TYPE_ID)
+if rtid_pid_GRDPERF: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Requirements for Gradient Performance Validation", "mk_tracker returned None"))
+ttid_pid_GRDPERF = mk_tracker(pid_GRDPERF, "Test Cases", "TC", TC_TYPE_ID)
+if ttid_pid_GRDPERF: _counts["trackers"] += 1
+else: _errors.append(("tracker", "Test Cases for Gradient Performance Validation", "mk_tracker returned None"))
+if not _verifies_discovered and ttid_pid_GRDPERF and not DRY_RUN:
+    _vf = discover_verifies_field(ttid_pid_GRDPERF, pid_GRDPERF)
+    if _vf: VERIFIES_FIELD_ID = _vf
+    else: warn(f"Using default VERIFIES_FIELD_ID={VERIFIES_FIELD_ID}")
+    _verifies_discovered = True
+rid_pid_GRDPERF_0 = mk_item(rtid_pid_GRDPERF, "The gradient system shall not exceed acoustic noise level of 99 dB(A) per IEC 60601-2-33", "Protects patient hearing during MRI examinations without ear protection failure.")
+if rid_pid_GRDPERF_0: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The gradient system shall not exceed acoustic noise level of", "mk_item returned None"))
+if rid_pid_GRDPERF_0:
+    tcid_pid_GRDPERF_0_0 = mk_item(ttid_pid_GRDPERF, "Verify acoustic noise level during worst-case EPI sequence", "Measure SPL at patient ear position during high-duty-cycle gradient operation. Steps: 1. Mount calibrated microphone at patient ear position in bore 2. Run EPI sequence at maximum gradient duty cycle 3. Record A-weighted SPL over 10-second window Expected: Measured acoustic noise level does not exceed 99 dB(A) at patient ear position")
+    if tcid_pid_GRDPERF_0_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_GRDPERF_0_0, rid_pid_GRDPERF_0): _counts["verifies"] += 1
+rid_pid_GRDPERF_1 = mk_item(rtid_pid_GRDPERF, "The gradient cooling system shall maintain coil temperature below 60 C under max duty cycle per IEC 60601-1", "Prevents thermal damage and ensures safe patient bore surface temperature.")
+if rid_pid_GRDPERF_1: _counts["requirements"] += 1
+else: _errors.append(("requirement", "The gradient cooling system shall maintain coil temperature ", "mk_item returned None"))
+if rid_pid_GRDPERF_1:
+    tcid_pid_GRDPERF_1_0 = mk_item(ttid_pid_GRDPERF, "Verify gradient coil thermal performance under sustained load", "Monitor coil temperature during 30-minute maximum duty cycle stress test. Steps: 1. Attach thermocouples to gradient coil hot spots 2. Run maximum duty cycle sequence for 30 minutes 3. Record peak temperature every 60 seconds Expected: Peak gradient coil temperature remains below 60 C throughout 30-minute test")
+    if tcid_pid_GRDPERF_1_0: _counts["test_cases"] += 1
+    if set_verifies(tcid_pid_GRDPERF_1_0, rid_pid_GRDPERF_1): _counts["verifies"] += 1
+
+# ══════════════════════════════════════════════════════════════════════
+# PHASE 2: Create Stream Hierarchy & Add Projects to Streams
+# Library (top) -> PL (top) -> Transform (parent=PL) -> Release (parent=Transform)
+# ══════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 58)
+print("PHASE 2: Creating Streams & Adding Projects")
+print("=" * 58)
+
+# -- LIBRARY STREAMS --
+print("\n[LIB] LIBRARY STREAMS")
+sid_LIB_MAG = mk_stream("Magnet Subsystem Library", "Baseline requirements and validation for superconducting magnet subsystem.", None)
+if sid_LIB_MAG:
+    _counts["streams"] += 1
+    _stream_ids["LIB_MAG"] = sid_LIB_MAG
+else: _errors.append(("stream", "Magnet Subsystem Library", "mk_stream returned None"))
+if _project_ids.get("MAGSYS") and sid_LIB_MAG:
+    mk_stream_project(sid_LIB_MAG, _project_ids["MAGSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("MAGPERF") and sid_LIB_MAG:
+    mk_stream_project(sid_LIB_MAG, _project_ids["MAGPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+sid_LIB_RF = mk_stream("RF Subsystem Library", "Baseline requirements and validation for RF transmit and receive chain.", None)
+if sid_LIB_RF:
+    _counts["streams"] += 1
+    _stream_ids["LIB_RF"] = sid_LIB_RF
+else: _errors.append(("stream", "RF Subsystem Library", "mk_stream returned None"))
+if _project_ids.get("RFSYS") and sid_LIB_RF:
+    mk_stream_project(sid_LIB_RF, _project_ids["RFSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFPERF") and sid_LIB_RF:
+    mk_stream_project(sid_LIB_RF, _project_ids["RFPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+sid_LIB_GRD = mk_stream("Gradient Subsystem Library", "Baseline requirements and validation for gradient coils and amplifiers.", None)
+if sid_LIB_GRD:
+    _counts["streams"] += 1
+    _stream_ids["LIB_GRD"] = sid_LIB_GRD
+else: _errors.append(("stream", "Gradient Subsystem Library", "mk_stream returned None"))
+if _project_ids.get("GRDSYS") and sid_LIB_GRD:
+    mk_stream_project(sid_LIB_GRD, _project_ids["GRDSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDPERF") and sid_LIB_GRD:
+    mk_stream_project(sid_LIB_GRD, _project_ids["GRDPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+# -- PRODUCT LINE STREAMS --
+print("\n[PL] PRODUCT LINE STREAMS")
+sid_PL_DIAG = mk_stream("Diagnostic MRI Product Line", "Aggregated view for standard diagnostic MRI scanner configurations.", None)
+if sid_PL_DIAG:
+    _counts["streams"] += 1
+    _stream_ids["PL_DIAG"] = sid_PL_DIAG
+else: _errors.append(("stream", "Diagnostic MRI Product Line", "mk_stream returned None"))
+if _project_ids.get("MAGSYS") and sid_PL_DIAG:
+    mk_stream_project(sid_PL_DIAG, _project_ids["MAGSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("MAGPERF") and sid_PL_DIAG:
+    mk_stream_project(sid_PL_DIAG, _project_ids["MAGPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFSYS") and sid_PL_DIAG:
+    mk_stream_project(sid_PL_DIAG, _project_ids["RFSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFPERF") and sid_PL_DIAG:
+    mk_stream_project(sid_PL_DIAG, _project_ids["RFPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDSYS") and sid_PL_DIAG:
+    mk_stream_project(sid_PL_DIAG, _project_ids["GRDSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDPERF") and sid_PL_DIAG:
+    mk_stream_project(sid_PL_DIAG, _project_ids["GRDPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+sid_PL_INTV = mk_stream("Interventional MRI Product Line", "Aggregated view for interventional and intraoperative MRI platforms.", None)
+if sid_PL_INTV:
+    _counts["streams"] += 1
+    _stream_ids["PL_INTV"] = sid_PL_INTV
+else: _errors.append(("stream", "Interventional MRI Product Line", "mk_stream returned None"))
+if _project_ids.get("MAGSYS") and sid_PL_INTV:
+    mk_stream_project(sid_PL_INTV, _project_ids["MAGSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("MAGPERF") and sid_PL_INTV:
+    mk_stream_project(sid_PL_INTV, _project_ids["MAGPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFSYS") and sid_PL_INTV:
+    mk_stream_project(sid_PL_INTV, _project_ids["RFSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFPERF") and sid_PL_INTV:
+    mk_stream_project(sid_PL_INTV, _project_ids["RFPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDSYS") and sid_PL_INTV:
+    mk_stream_project(sid_PL_INTV, _project_ids["GRDSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDPERF") and sid_PL_INTV:
+    mk_stream_project(sid_PL_INTV, _project_ids["GRDPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+# -- TRANSFORM STREAMS --
+print("\n[TR] TRANSFORM STREAMS")
+sid_TR_WIDE = mk_stream("Wide-Bore Diagnostic Transform", "Adapts diagnostic line for 70 cm wide-bore patient comfort platform.", _stream_ids.get("PL_DIAG"))
+if sid_TR_WIDE:
+    _counts["streams"] += 1
+    _stream_ids["TR_WIDE"] = sid_TR_WIDE
+else: _errors.append(("stream", "Wide-Bore Diagnostic Transform", "mk_stream returned None"))
+if _project_ids.get("MAGSYS") and sid_TR_WIDE:
+    mk_stream_project(sid_TR_WIDE, _project_ids["MAGSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("MAGPERF") and sid_TR_WIDE:
+    mk_stream_project(sid_TR_WIDE, _project_ids["MAGPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFSYS") and sid_TR_WIDE:
+    mk_stream_project(sid_TR_WIDE, _project_ids["RFSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFPERF") and sid_TR_WIDE:
+    mk_stream_project(sid_TR_WIDE, _project_ids["RFPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDSYS") and sid_TR_WIDE:
+    mk_stream_project(sid_TR_WIDE, _project_ids["GRDSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDPERF") and sid_TR_WIDE:
+    mk_stream_project(sid_TR_WIDE, _project_ids["GRDPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+sid_TR_IOPLT = mk_stream("Intraoperative Platform Transform", "Adapts interventional line for surgical suite integration.", _stream_ids.get("PL_INTV"))
+if sid_TR_IOPLT:
+    _counts["streams"] += 1
+    _stream_ids["TR_IOPLT"] = sid_TR_IOPLT
+else: _errors.append(("stream", "Intraoperative Platform Transform", "mk_stream returned None"))
+if _project_ids.get("MAGSYS") and sid_TR_IOPLT:
+    mk_stream_project(sid_TR_IOPLT, _project_ids["MAGSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("MAGPERF") and sid_TR_IOPLT:
+    mk_stream_project(sid_TR_IOPLT, _project_ids["MAGPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFSYS") and sid_TR_IOPLT:
+    mk_stream_project(sid_TR_IOPLT, _project_ids["RFSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFPERF") and sid_TR_IOPLT:
+    mk_stream_project(sid_TR_IOPLT, _project_ids["RFPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDSYS") and sid_TR_IOPLT:
+    mk_stream_project(sid_TR_IOPLT, _project_ids["GRDSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDPERF") and sid_TR_IOPLT:
+    mk_stream_project(sid_TR_IOPLT, _project_ids["GRDPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+# -- RELEASE / VARIANT STREAMS --
+print("\n[REL] RELEASE / VARIANT STREAMS")
+sid_REL_AV30 = mk_stream("Avantera 3.0T Release", "Release stream for 3T wide-bore diagnostic scanner.", _stream_ids.get("TR_WIDE"))
+if sid_REL_AV30:
+    _counts["streams"] += 1
+    _stream_ids["REL_AV30"] = sid_REL_AV30
+else: _errors.append(("stream", "Avantera 3.0T Release", "mk_stream returned None"))
+if _project_ids.get("MAGSYS") and sid_REL_AV30:
+    mk_stream_project(sid_REL_AV30, _project_ids["MAGSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("MAGPERF") and sid_REL_AV30:
+    mk_stream_project(sid_REL_AV30, _project_ids["MAGPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFSYS") and sid_REL_AV30:
+    mk_stream_project(sid_REL_AV30, _project_ids["RFSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFPERF") and sid_REL_AV30:
+    mk_stream_project(sid_REL_AV30, _project_ids["RFPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDSYS") and sid_REL_AV30:
+    mk_stream_project(sid_REL_AV30, _project_ids["GRDSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDPERF") and sid_REL_AV30:
+    mk_stream_project(sid_REL_AV30, _project_ids["GRDPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+sid_REL_AV15 = mk_stream("Avantera 1.5T Release", "Release stream for 1.5T wide-bore diagnostic scanner.", _stream_ids.get("TR_WIDE"))
+if sid_REL_AV15:
+    _counts["streams"] += 1
+    _stream_ids["REL_AV15"] = sid_REL_AV15
+else: _errors.append(("stream", "Avantera 1.5T Release", "mk_stream returned None"))
+if _project_ids.get("MAGSYS") and sid_REL_AV15:
+    mk_stream_project(sid_REL_AV15, _project_ids["MAGSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("MAGPERF") and sid_REL_AV15:
+    mk_stream_project(sid_REL_AV15, _project_ids["MAGPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFSYS") and sid_REL_AV15:
+    mk_stream_project(sid_REL_AV15, _project_ids["RFSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFPERF") and sid_REL_AV15:
+    mk_stream_project(sid_REL_AV15, _project_ids["RFPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDSYS") and sid_REL_AV15:
+    mk_stream_project(sid_REL_AV15, _project_ids["GRDSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDPERF") and sid_REL_AV15:
+    mk_stream_project(sid_REL_AV15, _project_ids["GRDPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+sid_REL_NX10 = mk_stream("NexFlow iOR 1.0T Release", "Release stream for 1.0T intraoperative MRI platform.", _stream_ids.get("TR_IOPLT"))
+if sid_REL_NX10:
+    _counts["streams"] += 1
+    _stream_ids["REL_NX10"] = sid_REL_NX10
+else: _errors.append(("stream", "NexFlow iOR 1.0T Release", "mk_stream returned None"))
+if _project_ids.get("MAGSYS") and sid_REL_NX10:
+    mk_stream_project(sid_REL_NX10, _project_ids["MAGSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("MAGPERF") and sid_REL_NX10:
+    mk_stream_project(sid_REL_NX10, _project_ids["MAGPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFSYS") and sid_REL_NX10:
+    mk_stream_project(sid_REL_NX10, _project_ids["RFSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("RFPERF") and sid_REL_NX10:
+    mk_stream_project(sid_REL_NX10, _project_ids["RFPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDSYS") and sid_REL_NX10:
+    mk_stream_project(sid_REL_NX10, _project_ids["GRDSYS"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+if _project_ids.get("GRDPERF") and sid_REL_NX10:
+    mk_stream_project(sid_REL_NX10, _project_ids["GRDPERF"], INITIAL_STREAM_ID)
+    _counts["stream_project_links"] += 1
+
+# ─── Summary & Validation ────────────────────────────────────────────────
+print("\n" + "=" * 58)
+print("EXECUTION SUMMARY")
+print("=" * 58)
+expected = {"streams": 10, "projects": 6, "trackers": 12, "requirements": 12, "test_cases": 12, "verifies": 12, "stream_project_links": 48}
+rows = [
+    ("Streams",      _counts["streams"],      expected["streams"]),
+    ("Projects",     _counts["projects"],     expected["projects"]),
+    ("Trackers",     _counts["trackers"],     expected["trackers"]),
+    ("Requirements", _counts["requirements"], expected["requirements"]),
+    ("Test Cases",   _counts["test_cases"],   expected["test_cases"]),
+    ("Verifies",     _counts["verifies"],     expected["verifies"]),
+    ("Stream-Proj",  _counts["stream_project_links"], expected["stream_project_links"]),
+]
+print(f"  {'Category':<16} {'Actual':>8} {'Expected':>10}  Status")
+print(f"  {'-'*16} {'-'*8} {'-'*10}  {'-'*6}")
+all_ok = True
+for label, actual, exp in rows:
+    status = "OK" if actual >= exp else "MISSING"
+    if actual < exp: all_ok = False
+    flag = "  " if actual >= exp else "!!"
+    print(f"  {flag} {label:<14} {actual:>8} {exp:>10}  {status}")
+print()
+if _errors:
+    print(f"ERRORS ({len(_errors)}):")
+    for cat, name, msg in _errors:
+        print(f"  [{cat.upper()}] {name}: {msg}")
+    print()
+if all_ok and not _errors:
+    print("All items created successfully.")
+elif DRY_RUN:
+    print("Dry-run complete — no API calls were made.")
+else:
+    print("Some items failed — review errors above.")
+print()
+print("Next steps in CB UI:")
+print("  1. ALM > Streams: verify hierarchy Library -> PL -> Transform -> Release")
+print("  2. Click a Library stream — you should see its branched projects")
+print("  3. Edit a requirement in Library stream, then check PL — they are independent")
+print("  4. Demo merge workflow: propagate changes between streams")
