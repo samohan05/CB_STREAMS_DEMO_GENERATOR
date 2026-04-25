@@ -14,7 +14,7 @@ A consultant picks a domain template (MRI, Ultrasound, ADAS, Pacemakers, etc., o
 
 The consultant then walks through a 5-step wizard. Each step writes to the customer's Codebeamer instance via a local Flask proxy — projects are created, requirements and test cases are populated with Verifies traceability, and the 4-tier stream hierarchy is built with per-project source-stream lineage. By the end, the customer's CB instance has a credible domain-accurate demo environment.
 
-The tool was built for the Philips MR pre-sales engagement but is **domain-agnostic** — any consultant can use it for MedTech / Automotive / Aerospace.
+The tool was built for the Proffessional services/pre-sales engagement but is **domain-agnostic** — any consultant can use it for MedTech / Automotive / Aerospace.
 
 ---
 
