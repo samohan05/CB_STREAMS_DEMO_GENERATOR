@@ -200,6 +200,15 @@
       const [reqStatus, setReqStatus] = useState({});
       const [reqErrors, setReqErrors] = useState({});
       const [reqCounts, setReqCounts] = useState({});
+      // Per-project artifact details for Summary v2 — { [projIdx]: { reqs: [{id, title}], tcs: [{id, title, verifies: [reqIds]}] } }
+      const [projectArtifacts, setProjectArtifacts] = useState({});
+      // Step 3 → Step 4 abort flow: when true, Step 4 shows an aborted-run banner.
+      const [abortMode, setAbortMode] = useState(false);
+      // Per-run timestamp captured at first AI generation, used in Summary header.
+      const [generatedAt, setGeneratedAt] = useState(null);
+      // Summary v2 — per-project / per-stream collapsed-state map
+      const [summaryExpanded, setSummaryExpanded] = useState({}); // { 'proj-3': true, 'stream-LIB_X': true }
+      const [summaryAllExpanded, setSummaryAllExpanded] = useState(false);
 
       // Stream creation
       const [streamStatus, setStreamStatus] = useState({});
@@ -585,6 +594,11 @@ CONTENT QUALITY RULES:
           }
 
           setStruct(parsed);
+          setGeneratedAt(new Date());
+          setProjectArtifacts({});
+          setSummaryExpanded({});
+          setSummaryAllExpanded(false);
+          setAbortMode(false);
           setProjectStatus({});
           setProjectIds({});
           setProjectTrackers({});
@@ -966,6 +980,9 @@ CONTENT QUALITY RULES:
           let reqCount = 0, tcCount = 0, verifyCount = 0;
           const reqs = p.requirements || [];
           const reqIds = [];
+          // Per-project artifact details for Summary v2
+          const reqDetails = [];   // [{id, title}]
+          const tcDetails = [];    // [{id, title, verifies: [reqIds]}]
 
           for (const req of reqs) {
             const r = await cbPost(`trackers/${trackers.reqTrackerId}/items`, {
@@ -973,6 +990,7 @@ CONTENT QUALITY RULES:
               description: req.description || "",
             });
             reqIds.push(r.id);
+            reqDetails.push({ id: r.id, title: req.title });
             reqCount++;
           }
 
@@ -987,6 +1005,7 @@ CONTENT QUALITY RULES:
               name: tcData.title,
               description: `${tcData.description || ""}\nSteps: ${tcData.steps || ""}\nExpected: ${tcData.expected_result || ""}`,
             });
+            tcDetails.push({ id: tc.id, title: tcData.title, verifies: [...group] });
             tcCount++;
 
             // Set Verifies field — PUT /v3/items/{id}/fields with UpdateTrackerItemField body.
@@ -1014,6 +1033,7 @@ CONTENT QUALITY RULES:
           }
 
           setReqCounts(prev => ({ ...prev, [idx]: { reqs: reqCount, tcs: tcCount, verifies: verifyCount } }));
+          setProjectArtifacts(prev => ({ ...prev, [idx]: { reqs: reqDetails, tcs: tcDetails } }));
           setReqStatus(prev => ({ ...prev, [idx]: "done" }));
         } catch(e) {
           setReqStatus(prev => ({ ...prev, [idx]: "error" }));
@@ -1660,21 +1680,20 @@ CONTENT QUALITY RULES:
           {/* ══ Step 3: Streams ══════════════════════════════════════ */}
           {step === 3 && struct && (
             <div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-                <div>
-                  <div style={{ fontSize:15, fontWeight:500 }}>Stream Hierarchy</div>
-                  <div style={{ fontSize:12, color:"var(--text-secondary)" }}>
-                    Create in order: Library &rarr; Product Line &rarr; Transform &rarr; Release.
-                    {initialStreamId && <span> Initial Stream ID: <strong>{initialStreamId}</strong></span>}
-                  </div>
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:15, fontWeight:500 }}>Stream Hierarchy</div>
+                <div style={{ fontSize:12, color:"var(--text-secondary)" }}>
+                  Create in order: Library &rarr; Product Line &rarr; Transform &rarr; Release.
+                  {initialStreamId && <span> Initial Stream ID: <strong>{initialStreamId}</strong></span>}
                 </div>
-                <button
-                  style={creatingAllStreams ? { ...smallBtnStyle(true), opacity:0.5, cursor:"not-allowed" } : smallBtnStyle(true)}
-                  disabled={creatingAllStreams}
-                  onClick={createAllStreams}
-                >
-                  {creatingAllStreams ? "Creating..." : "Create All"}
-                </button>
+              </div>
+
+              {/* Verification gate notice — replaces "Create All" */}
+              <div style={{
+                padding:"10px 14px", marginBottom:16, background:"#FFFBEB",
+                border:"1px solid #FDE68A", borderRadius:8, fontSize:12, color:"#78350F",
+              }}>
+                <strong>Create streams one at a time.</strong> After each stream is created, verify in Codebeamer that the projects and content appear as selected before creating the next stream. The bulk "Create All" button has been removed for this step.
               </div>
 
               {TIERS.map(tier => {
@@ -2060,65 +2079,293 @@ CONTENT QUALITY RULES:
                 );
               })}
 
-              <div style={{ display:"flex", gap:10, marginTop:16 }}>
-                <button style={btnStyle(false)} onClick={() => setStep(2)}>Back</button>
-                <button style={btnStyle(true)} onClick={() => setStep(4)}>View Summary</button>
-              </div>
+              {(() => {
+                // All streams done? View Summary becomes the only enabled action.
+                const totalStreams = TIERS.reduce((a,t) => a + (struct[t.key]||[]).length, 0);
+                const doneStreams = Object.values(streamStatus).filter(s => s === "done").length;
+                const allDone = totalStreams > 0 && doneStreams >= totalStreams;
+                const anyPending = !allDone;
+                const cleanupBtnStyle = (anyPending && !creatingAllStreams)
+                  ? smallBtnStyle(false)
+                  : { ...smallBtnStyle(false), opacity:0.4, cursor:"not-allowed" };
+                const summaryBtnStyle = allDone
+                  ? btnStyle(true)
+                  : { ...btnStyle(true), opacity:0.4, cursor:"not-allowed" };
+                return (
+                  <div style={{
+                    display:"flex", alignItems:"center", gap:10, marginTop:20,
+                    paddingTop:14, borderTop:"1px solid var(--border-secondary)",
+                  }}>
+                    <button style={btnStyle(false)} onClick={() => setStep(2)}>Back</button>
+                    <button
+                      style={cleanupBtnStyle}
+                      disabled={!anyPending || creatingAllStreams}
+                      title={anyPending ? "Open the cleanup panel — your wizard state is preserved" : "All streams created — use Summary to wrap up"}
+                      onClick={() => { setAbortMode(false); setStep(4); }}>
+                      Cleanup partial run
+                    </button>
+                    <button
+                      style={cleanupBtnStyle}
+                      disabled={!anyPending || creatingAllStreams}
+                      title={anyPending ? "Cleanup, then reset the wizard to Step 0" : "All streams created — use Summary to wrap up"}
+                      onClick={() => {
+                        if (!confirm("Abort this run?\n\nYou'll be sent to the cleanup page. After cleaning up, click 'Start New Demo' to reset the wizard.")) return;
+                        setAbortMode(true);
+                        setStep(4);
+                      }}>
+                      Abort &amp; restart
+                    </button>
+                    <span style={{ flex:1 }} />
+                    <button
+                      style={summaryBtnStyle}
+                      disabled={!allDone}
+                      title={allDone ? "" : `Create all streams first (${doneStreams}/${totalStreams} done)`}
+                      onClick={() => allDone && setStep(4)}>
+                      View Summary
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
-          {/* ══ Step 4: Summary ══════════════════════════════════════ */}
-          {step === 4 && struct && (
+          {/* ══ Step 4: Summary v2 ════════════════════════════════════ */}
+          {step === 4 && struct && (() => {
+            // Helpers — kept local to Step 4 render
+            const isOpen = (key) => summaryAllExpanded || !!summaryExpanded[key];
+            const toggleOpen = (key) => setSummaryExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+            const tierByKey = TIERS.reduce((acc,t)=>{ acc[t.key]=t; return acc; }, {});
+
+            // Build a stream-key → stream_name lookup for "source: <name>" display
+            const streamNameByKey = {};
+            for (const t of TIERS) for (const s of (struct[t.key]||[])) streamNameByKey[s.stream_key] = s.stream_name;
+
+            // Determine "source stream" label for a given project in a given stream
+            const projectToLibKey = projectToLibraryMap;
+            const sourceLabelForProject = (tierKey, stream, projectKey) => {
+              const proj = struct.projects?.find(p => p.project_key === projectKey);
+              const cat = proj?.category;
+              if (tierKey === "library_streams") return "Initial Stream";
+              if (tierKey === "product_line_streams") {
+                if (cat === "library") return streamNameByKey[projectToLibKey[projectKey]] || "Initial Stream";
+                if (cat === "product_line") return "Initial Stream";
+                return "—";
+              }
+              if (tierKey === "release_streams" && cat === "release") return "Initial Stream";
+              return "—";
+            };
+
+            // Filter project_keys per tier ownership (matches createStream B-1 filter)
+            const ownedProjectsForStream = (tierKey, stream) => {
+              const own = { library_streams:["library"], product_line_streams:["library","product_line"], transform_streams:[], release_streams:["release"] }[tierKey] || [];
+              return (stream.project_keys || []).filter(pk => {
+                const p = struct.projects?.find(p => p.project_key === pk);
+                return p && own.includes(p.category);
+              });
+            };
+
+            const tsLabel = generatedAt ? generatedAt.toLocaleString(undefined, { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "";
+
+            return (
             <div>
-              <div style={{ fontSize:16, fontWeight:500, marginBottom:14 }}>
-                Demo Summary: {struct.domain_name}
+              {/* Header */}
+              <div style={{ marginBottom:20 }}>
+                <div style={{ fontSize:20, fontWeight:600, color:"var(--text-primary)", marginBottom:4 }}>
+                  Demo Summary: {struct.domain_name}
+                </div>
+                <div style={{ fontSize:12, color:"var(--text-secondary)" }}>
+                  {sessionPrefix && <>[{sessionPrefix}]  ·  </>}
+                  {DRY_RUN ? "Dry Run" : "Live mode"}
+                  {tsLabel && <>  ·  Created {tsLabel}</>}
+                </div>
               </div>
 
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:20 }}>
+              {/* Aborted-run banner */}
+              {abortMode && (
+                <div style={{ padding:"10px 14px", marginBottom:16, background:"#FEF2F2",
+                  border:"1px solid #FECACA", borderRadius:8, fontSize:12, color:"#7F1D1D" }}>
+                  <strong>Run aborted.</strong> Clean up the projects below, then click <em>Start New Demo</em> at the bottom to reset the wizard.
+                </div>
+              )}
+
+              {/* Stat band */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
                 <Stat value={struct.projects?.length || 0} label="Projects" color="#534AB7" />
                 <Stat value={Object.values(reqCounts).reduce((a,c) => a + (c?.reqs||0), 0)} label="Requirements" color="#854F0B" />
                 <Stat value={Object.values(reqCounts).reduce((a,c) => a + (c?.tcs||0), 0)} label="Test Cases" color="#185FA5" />
                 <Stat value={TIERS.reduce((a,t) => a + (struct[t.key]||[]).length, 0)} label="Streams" color="#0F6E56" />
               </div>
 
-              <div style={{ fontSize:14, fontWeight:500, marginBottom:8 }}>Projects</div>
-              <div style={{ marginBottom:16 }}>
-                {struct.projects.map((p, i) => (
-                  <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"7px 10px",
-                    borderRadius:6, marginBottom:2, background:"var(--bg-secondary)",
-                    border:"1px solid var(--border-tertiary)", fontSize:13 }}>
-                    <span>{p.project_name}</span>
-                    <span style={{ color:"var(--text-tertiary)", fontSize:12 }}>
-                      ID: {projectIds[i] || "\u2014"}
-                      {reqCounts[i] && ` | ${reqCounts[i].reqs} reqs, ${reqCounts[i].tcs} TCs`}
+              {/* Expand toggle — segmented chip */}
+              <div style={{ display:"flex", justifyContent:"center", marginBottom:18 }}>
+                <div style={{ display:"inline-flex", padding:3, borderRadius:8, background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)" }}>
+                  {[
+                    { v:false, label:"▶  Collapsed" },
+                    { v:true,  label:"▼  Expanded" },
+                  ].map(opt => (
+                    <span key={String(opt.v)}
+                      onClick={() => setSummaryAllExpanded(opt.v)}
+                      style={{
+                        padding:"6px 14px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
+                        background: summaryAllExpanded === opt.v ? "var(--text-primary)" : "transparent",
+                        color: summaryAllExpanded === opt.v ? "var(--bg-primary)" : "var(--text-secondary)",
+                      }}>
+                      {opt.label}
                     </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
-              <div style={{ fontSize:14, fontWeight:500, marginBottom:8 }}>Stream Hierarchy</div>
+              {/* ── Projects ── */}
+              <div style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>Projects</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:24 }}>
+                {struct.projects.map((p, i) => {
+                  const open = isOpen(`proj-${i}`);
+                  const cat = p.category || "library";
+                  const tier = cat === "release" ? TIERS[3] : cat === "product_line" ? TIERS[1] : TIERS[0];
+                  const arts = projectArtifacts[i];
+                  const counts = reqCounts[i];
+                  return (
+                    <div key={i} style={{ padding:"10px 14px", borderRadius:8, background:"var(--bg-primary)", border:"1px solid var(--border-secondary)" }}>
+                      <div onClick={() => toggleOpen(`proj-${i}`)}
+                        style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
+                        <span style={{ fontSize:9, color:"var(--text-secondary)", width:10 }}>{open ? "▼" : "▶"}</span>
+                        <span style={{ width:8, height:8, borderRadius:"50%", background:tier.clr, flexShrink:0 }}></span>
+                        <span style={{ fontSize:13, fontWeight:500, flex:1 }}>{p.project_name}</span>
+                        <span style={{ fontSize:10, fontWeight:500, color:tier.clr, padding:"2px 8px", borderRadius:4, background:tier.bg }}>
+                          {cat === "product_line" ? "product line" : cat}
+                        </span>
+                        <span style={{ fontSize:11, fontWeight:500, color:"var(--text-tertiary)", fontFamily:"monospace", minWidth:80, textAlign:"right" }}>
+                          {projectIds[i] ? `id ${projectIds[i]}` : "—"}
+                        </span>
+                      </div>
+
+                      {!open && counts && (
+                        <div style={{ fontSize:11, color:"var(--text-secondary)", marginTop:4, paddingLeft:28 }}>
+                          {counts.reqs} requirements  ·  {counts.tcs} test cases  ·  {counts.verifies} verifies links
+                        </div>
+                      )}
+
+                      {open && arts && (
+                        <div style={{ marginTop:10, paddingLeft:22 }}>
+                          {arts.reqs?.length > 0 && (
+                            <div style={{ borderLeft:"2px solid var(--border-secondary)", paddingLeft:12, marginBottom:8 }}>
+                              <div style={{ fontSize:10, fontWeight:600, color:"var(--text-tertiary)", letterSpacing:0.5, marginBottom:2 }}>
+                                {arts.reqs.length} REQUIREMENTS
+                              </div>
+                              {arts.reqs.map((r, ri) => (
+                                <div key={ri} style={{ display:"flex", alignItems:"center", gap:8, padding:"3px 0", fontSize:12 }}>
+                                  <span style={{ flex:1 }}>{r.title}</span>
+                                  <span style={{ color:"var(--text-tertiary)", fontFamily:"monospace", fontSize:11 }}>id {r.id}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {arts.tcs?.length > 0 && (
+                            <div style={{ borderLeft:"2px solid var(--border-secondary)", paddingLeft:12 }}>
+                              <div style={{ fontSize:10, fontWeight:600, color:"var(--text-tertiary)", letterSpacing:0.5, marginBottom:2 }}>
+                                {arts.tcs.length} TEST CASES
+                              </div>
+                              {arts.tcs.map((t, ti) => (
+                                <div key={ti} style={{ display:"flex", alignItems:"center", gap:8, padding:"3px 0", fontSize:12 }}>
+                                  <span>{t.title}</span>
+                                  <span style={{ color:"var(--text-tertiary)", fontSize:11 }}>verifies {t.verifies.join(", ")}</span>
+                                  <span style={{ flex:1 }}></span>
+                                  <span style={{ color:"var(--text-tertiary)", fontFamily:"monospace", fontSize:11 }}>id {t.id}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {!arts.reqs?.length && !arts.tcs?.length && (
+                            <div style={{ fontSize:11, color:"var(--text-tertiary)", fontStyle:"italic" }}>
+                              No requirements or test cases were created for this project.
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {open && !arts && (
+                        <div style={{ fontSize:11, color:"var(--text-tertiary)", fontStyle:"italic", marginTop:6, paddingLeft:28 }}>
+                          Artifact details unavailable (project may have been resolved from a previous run).
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── Streams ── */}
               {TIERS.map(tier => {
                 const streams = struct[tier.key] || [];
                 if (!streams.length) return null;
                 return (
-                  <div key={tier.key} style={{ marginBottom:10 }}>
-                    <div style={{ fontSize:12, fontWeight:500, color:tier.clr, marginBottom:4, paddingLeft:4 }}>{tier.label}</div>
-                    {streams.map((st, i) => (
-                      <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"5px 10px",
-                        marginLeft:12, marginBottom:2, borderRadius:4, fontSize:12,
-                        borderLeft:`2px solid ${tier.clr}`, background:"var(--bg-secondary)" }}>
-                        <span>{st.stream_name}</span>
-                        <span style={{ color:"var(--text-tertiary)" }}>
-                          ID: {streamIds[st.stream_key] || "\u2014"}
-                          {st.parent_stream_key && ` | Parent: ${st.parent_stream_key}`}
-                        </span>
-                      </div>
-                    ))}
+                  <div key={tier.key} style={{ marginBottom:18 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                      <span style={{ fontSize:14, fontWeight:600, color:"var(--text-primary)" }}>{tier.label}</span>
+                      <span style={{ fontSize:13, color:"var(--text-tertiary)" }}>({streams.length})</span>
+                    </div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                      {streams.map((st, i) => {
+                        const skey = `stream-${st.stream_key}`;
+                        const open = isOpen(skey);
+                        const ownedKeys = ownedProjectsForStream(tier.key, st);
+                        const inheritedCount = (st.project_keys?.length || 0) - ownedKeys.length;
+                        const sid = streamIds[st.stream_key];
+                        const parentName = st.parent_stream_key ? streamNameByKey[st.parent_stream_key] : null;
+                        // Per-tier summary line copy
+                        let summary;
+                        if (tier.key === "library_streams")
+                          summary = `No parent — independent root  ·  ${ownedKeys.length} project${ownedKeys.length===1?"":"s"}`;
+                        else if (tier.key === "product_line_streams")
+                          summary = `No parent — independent root  ·  ${ownedKeys.length} project${ownedKeys.length===1?"":"s"}`;
+                        else if (tier.key === "transform_streams")
+                          summary = `Branched from ${parentName || "—"}  ·  mirrors ${inheritedCount} project${inheritedCount===1?"":"s"} via inheritance`;
+                        else
+                          summary = `Branched from ${parentName || "—"}  ·  inherits ${inheritedCount}  ·  ${ownedKeys.length} release-specific`;
+
+                        return (
+                          <div key={i} style={{ padding:"10px 14px", borderRadius:8, background:"var(--bg-primary)", border:"1px solid var(--border-secondary)", borderLeft:`3px solid ${tier.clr}` }}>
+                            <div onClick={() => toggleOpen(skey)}
+                              style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
+                              <span style={{ fontSize:9, color:"var(--text-secondary)", width:10 }}>{open ? "▼" : "▶"}</span>
+                              <span style={{ fontSize:13, fontWeight:500, flex:1 }}>
+                                {sessionPrefix && <span style={{ color:"var(--text-tertiary)", fontWeight:400 }}>[{sessionPrefix}] </span>}
+                                {st.stream_name}
+                              </span>
+                              <span style={{ fontSize:11, fontWeight:500, color:"var(--text-tertiary)", fontFamily:"monospace", minWidth:80, textAlign:"right" }}>
+                                {sid ? `id ${sid}` : "—"}
+                              </span>
+                            </div>
+                            <div style={{ fontSize:11, color:"var(--text-secondary)", marginTop:4, paddingLeft:22 }}>
+                              {summary}
+                            </div>
+                            {open && ownedKeys.length > 0 && (
+                              <div style={{ marginTop:8, paddingLeft:34 }}>
+                                <div style={{ borderLeft:"2px solid var(--border-secondary)", paddingLeft:10 }}>
+                                  {ownedKeys.map(pk => {
+                                    const p = struct.projects?.find(pr => pr.project_key === pk);
+                                    return (
+                                      <div key={pk} style={{ display:"flex", alignItems:"center", gap:8, padding:"3px 0", fontSize:12 }}>
+                                        <span style={{ flex:1 }}>{p?.project_name || pk}</span>
+                                        <span style={{ color:"var(--text-tertiary)", fontSize:11 }}>
+                                          source: {sourceLabelForProject(tier.key, st, pk)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
 
-              <div style={{ marginTop:20, padding:"12px 14px", background:"var(--bg-secondary)",
+              {/* Next steps */}
+              <div style={{ marginTop:6, padding:"12px 14px", background:"var(--bg-secondary)",
                 borderRadius:8, borderLeft:"3px solid #1D9E75", fontSize:13, color:"var(--text-secondary)" }}>
                 <div style={{ fontWeight:500, color:"#065F46", marginBottom:4 }}>Next steps in Codebeamer</div>
                 <div>1. Navigate to ALM &gt; Streams and verify the hierarchy.</div>
@@ -2203,11 +2450,15 @@ CONTENT QUALITY RULES:
                 )}
               </div>
 
-              <button style={{...btnStyle(false), marginTop:16}} onClick={() => { setStep(0); setStruct(null); streamIdsRef.current = {}; }}>
+              <button style={{...btnStyle(false), marginTop:16}} onClick={() => {
+                setStep(0); setStruct(null); streamIdsRef.current = {};
+                setProjectArtifacts({}); setSummaryExpanded({}); setSummaryAllExpanded(false); setAbortMode(false);
+              }}>
                 Start New Demo
               </button>
             </div>
-          )}
+            );
+          })()}
         </div>
       );
     }
