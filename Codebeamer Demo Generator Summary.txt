@@ -1,0 +1,110 @@
+Here is the complete summary of everything that went into building the CB Demo Generator:
+
+---
+
+## CB Demo Generator — Complete Build Summary
+
+---
+
+### What It Is
+
+A two-part automation tool for Codebeamer ALM pre-sales demos. Part one is a React wizard running inside Claude.ai that uses the Claude Sonnet API to generate a domain-specific 4-tier stream hierarchy as structured JSON. Part two is a Python script — generated from that JSON — that executes all CB REST API calls to build the entire demo environment in a customer's CB instance, ready to walk through in under 30 minutes.
+
+---
+
+### Origin & Business Context
+
+Built to support the **Philips MR Configuration Management Strategy** engagement — a stream-based ALM modernisation proposal for their MRI product family. The customer approved the concept in a presentation and asked for an MVP demonstration. Rather than build a one-off MRI demo, the tool was designed to be **domain-agnostic** so any consultant can spin up a convincing demo for any customer — MedTech, Automotive, Aerospace — with a single click.
+
+---
+
+### Architecture — Three Layers
+
+**Layer 1 — React Wizard (Browser)**
+Runs in Claude.ai with zero setup. Collects domain selection and CB connection details, calls the Claude API, renders a live preview, and delivers a downloadable Python script. The browser never touches the CB instance directly — CORS would block it.
+
+**Layer 2 — Claude Sonnet API**
+Called once per generation run at `POST https://api.anthropic.com/v1/messages`. A carefully engineered prompt instructs Claude to generate domain-accurate requirements using real standards (IEC 60601/62304 for medical, ISO 26262 for automotive, DO-178C for avionics), shall-style requirement wording, measurable acceptance criteria, and plausible fictional product names. The response is a structured JSON object covering all four stream tiers.
+
+**Layer 3 — Python Script (Local Machine)**
+Generated dynamically from the AI JSON. Runs locally against the customer CB instance via `requests` + HTTP Basic Auth. Executes all CB REST API calls in sequence and prints a live status line for every object created.
+
+---
+
+### The 4-Tier Stream Architecture Generated
+
+| Tier | Count | Projects per Stream | Requirement Focus |
+|------|-------|--------------------|--------------------|
+| Library Streams | 3 | 2 | Shared cross-product subsystem requirements split by type (e.g. System Req + Performance Req) |
+| Product Line Streams | 2 | 2 | Platform-level requirements derived from libraries |
+| Transform Streams | 2 | 2 | PL replica with product-specific parameter values substituted (CB 3.2 surrogate for Pure Variants) |
+| Release Streams | N (slider) | 2 | Product-specific release requirements with fictional product names |
+
+The 2-projects-per-stream rule was a deliberate design decision — each stream's two projects split by a **meaningful requirement type boundary** relevant to the domain (e.g. Magnet library → `MAG_SysReq` + `MAG_PerfReq`; SW library → `FuncReq` + `NonFuncReq`). The AI is instructed to determine the right split per domain.
+
+---
+
+### CB REST API Inventory (Spec-Verified)
+
+Every endpoint was cross-referenced against the customer-provided **Public API** and **Internal API** spec files before implementation. Three critical corrections were made from the initial version:
+
+| Method | Endpoint | Purpose | Key Detail from Spec |
+|--------|----------|---------|----------------------|
+| `GET` | `/v3/streams/initial` | Fetch initial stream ID | Required as `sourceStreamId` in every stream-project call |
+| `POST` | `/v3/projects` | Create project | `name`, `keyName`, `description` |
+| `POST` | `/v3/projects/{id}/trackers` | Create tracker | `type.id` — 5 for Requirements, 102 for Test Cases |
+| `POST` | `/v3/trackers/{id}/items` | Create tracker item | `name`, `description` |
+| `POST` | `/v3/streams/stream` | Create stream | `name` + `color` both required by `CreateStream` schema |
+| `PUT` | `/v3/streams/{id}/projects` | Add project to stream | `PUT` not `POST`; `projectId` + `sourceStreamId` + `addAllTrackers` all required |
+| `PUT` | `/v3/items/{id}/fields` | Set Verifies reference | `UpdateTrackerItemField` body with `ChoiceFieldValue` + `TrackerItemReference` |
+
+---
+
+### Verifies Field Implementation — Three Iterations
+
+This went through three versions before arriving at the spec-correct implementation:
+
+**Version 1** — `POST /v3/associations` with a `covers` association type. Removed because the customer requirement is for the built-in **Verifies reference field** on the Test Cases tracker, not a separate association object.
+
+**Version 2** — `PUT /v3/items/{tc_id}` with `upstreamReferences` in the `TrackerItem` body. Closer but wrong — `upstreamReferences` is a read-model field on the TrackerItem response schema, not a writable field update endpoint.
+
+**Version 3 (current)** — `PUT /v3/items/{tc_id}/fields` with `UpdateTrackerItemField` body:
+```json
+{
+  "fieldValues": [{
+    "fieldId": 17,
+    "name":    "Verifies",
+    "type":    "ChoiceFieldValue",
+    "values":  [{"id": <req_id>, "type": "TrackerItemReference"}]
+  }]
+}
+```
+Confirmed from three sources simultaneously: the API spec's `UpdateTrackerItemField` schema, the `Test_Run_Reuse.groovy` script in the project files (which uses the identical `ChoiceFieldValue` + `TrackerItemReference` pattern), and the customer-provided field metadata (`id: 17`, `name: "Verifies"`, `type: "FieldReference"`).
+
+---
+
+### JSON Generation Reliability — Two-Pass Fixes
+
+**Problem 1 — Token truncation** (`Expected ',' or '}' at position 29,395`). Root cause: the original prompt requested too much content. Fix: strict quantity limits (3 lib streams, 2 PL, 2 transform, max 4–5 release, 2 projects each, 2 reqs each, 1 test case each) bring expected response size well within model limits.
+
+**Problem 2 — Unescaped control characters** (`Expected ',' or '}' after property value in JSON at line 65 col 120`). Root cause: Claude occasionally emits real newline characters inside JSON string values. Fix: a state-machine `sanitizeJson()` function reads the raw response character-by-character, tracks whether it is inside a string (`inStr`), and converts raw `\n` / `\r` / `\t` to proper JSON escape sequences before handing off to `JSON.parse`. This is followed by a 3-stage repair cascade (strip fences → extract outermost block → close unclosed structures) for any remaining edge cases.
+
+---
+
+### CB 3.2 Specific Decisions
+
+Since the customer environment is CB 3.2, two capabilities from the presentation strategy are not available programmatically: **auto-merge** (a 3.3 feature) and **Pure Variants transformation**. The tool handles both through deliberate design:
+
+Transform streams are built as **pre-substituted replicas** of PL streams — requirements already contain the actual product parameter values (e.g. `3.0 T ± 0.1 ppm`) rather than generic placeholders. The demo narrative for auto-merge is delivered manually: update a library requirement in the CB UI, navigate to the PL stream, show the pending merge notification, accept it, trace to the release stream. One extra click, same story.
+
+---
+
+### UI Features
+
+An 8-template quick-pick grid covering MRI, Ultrasound, Pacemakers, Luxury Cars, ADAS, Avionics, Radiotherapy, and Automotive ECU — plus a free-text custom domain + industry input for any domain not in the list. A slider controls the number of release products (2–5). A collapsible 4-tier stream tree preview shows every stream, project, requirement, and test case before download. A live artifact stats bar shows total stream / project / requirement / test case counts. The Python script is available for one-click download or clipboard copy. The CB base URL input takes the host only (`https://your-cb.com`) — the script appends `/cb/api` automatically, matching the server URL confirmed in both API spec files.
+
+---
+
+### Current File Stats
+
+810 lines · 38,000 characters · 8 domain templates · 4 tier definitions · 7 CB API endpoints · 5 named constants (`REQ_TYPE_ID=5`, `TC_TYPE_ID=102`, `VERIFIES_FIELD_ID=17`, `STREAM_COLOR`, `INITIAL_STREAM_ID`)

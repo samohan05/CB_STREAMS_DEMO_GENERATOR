@@ -1,5 +1,7 @@
 # CB Demo Generator — Phased Improvement Plan
 
+> **[SUPERSEDED — 2026-04-25]** This plan was written for `cb_demo_generator.jsx` (now in `archive/`), which built a downloadable Python provisioning script. The project has since pivoted to a live, interactive Flask + React wizard (`server.py` + `cb_demo.html`) that provisions Codebeamer directly via a local proxy. Phases 1A–2C are no longer applicable. Phase 3 items (idempotency, configurable field IDs, validation summary) were partly carried into the new architecture; refer to `README.md` for the current state.
+
 **File:** `cb_demo_generator.jsx`
 **Goal:** Production-quality demo automation tool that generates a correct, secure, hierarchical Codebeamer provisioning script.
 

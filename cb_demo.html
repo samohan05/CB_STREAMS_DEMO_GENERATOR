@@ -39,7 +39,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef } = React;
 
     // ─── Product Catalog ──────────────────────────────────────────────
     const PRODUCTS = [
@@ -183,6 +183,11 @@
       const [struct, setStruct] = useState(null);
       const [err, setErr] = useState("");
       const [generating, setGenerating] = useState(false);
+      // Per-page in-flight guards for "Create All" buttons.
+      // Prevents the user clicking twice and spawning parallel API trains.
+      const [creatingAllProjects, setCreatingAllProjects] = useState(false);
+      const [creatingAllReqs, setCreatingAllReqs] = useState(false);
+      const [creatingAllStreams, setCreatingAllStreams] = useState(false);
       const [genStage, setGenStage] = useState("");
 
       // Project creation
@@ -198,9 +203,81 @@
 
       // Stream creation
       const [streamStatus, setStreamStatus] = useState({});
+      // Per-stream sub-step message (e.g. "Stream created — adding 2 of 3 projects").
+      // Cleared when status flips to "done" so the static badge takes over.
+      const [streamProgress, setStreamProgress] = useState({});
       const [streamIds, setStreamIds] = useState({});
+      // Mirror of streamIds in a ref — synchronous, so sequential createAllStreams
+      // can see parent stream IDs created earlier in the same loop.
+      // (React state updates don't propagate within the same closure, which caused
+      // every PL/Transform/Release stream to fall back to initialStreamId.)
+      const streamIdsRef = useRef({});
       const [streamErrors, setStreamErrors] = useState({});
       const [initialStreamId, setInitialStreamId] = useState(null);
+
+      // Session prefix to tag every stream this run creates (CB doesn't allow
+      // stream deletion via API, so a unique prefix lets the consultant
+      // group / hide / mass-clean residue between demos).
+      // Format: YYMMDD-HHMM, e.g. "260425-2103". Editable before generation.
+      const buildSessionPrefix = () => {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, "0");
+        return `${String(d.getFullYear()).slice(2)}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+      };
+      const [sessionPrefix, setSessionPrefix] = useState(buildSessionPrefix());
+      const prefixedStreamName = (n) => sessionPrefix ? `[${sessionPrefix}] ${n}` : n;
+
+      // ── Cleanup state (Summary step) ─────────────────────────────────
+      const [cleanupBusy, setCleanupBusy] = useState(false);
+      const [cleanupPreview, setCleanupPreview] = useState(null); // {projects:[], streams:[]}
+      const [cleanupResult, setCleanupResult] = useState(null);   // post-delete summary
+
+      // Read CB category name from generated struct (used for project cleanup scope)
+      const cleanupCategory = struct?.domain_name || "";
+
+      const previewCleanup = async () => {
+        if (!cleanupCategory) return;
+        setCleanupBusy(true);
+        setCleanupResult(null);
+        try {
+          // Projects in this category (dry-run)
+          const pRes = await fetch("/api/cleanup/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category: cleanupCategory, dry_run: true }),
+          }).then(r => r.json());
+          // Streams matching this run's prefix (read-only listing)
+          const sRes = sessionPrefix
+            ? await fetch(`/api/cleanup/streams?prefix=${encodeURIComponent(sessionPrefix)}`)
+                .then(r => r.json())
+            : { count: 0, streams: [] };
+          setCleanupPreview({ projects: pRes.projects || [], streams: sRes.streams || [] });
+        } catch(e) {
+          alert(`Preview failed: ${e.message}`);
+        } finally {
+          setCleanupBusy(false);
+        }
+      };
+
+      const executeCleanup = async () => {
+        if (!cleanupCategory || !cleanupPreview) return;
+        const n = cleanupPreview.projects.length;
+        if (!confirm(`Delete ${n} project(s) in category "${cleanupCategory}"?\n\nNote: streams cannot be deleted via the CB v3 API. They will be listed for manual cleanup but not removed.`)) return;
+        setCleanupBusy(true);
+        try {
+          const r = await fetch("/api/cleanup/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category: cleanupCategory, dry_run: false }),
+          }).then(r => r.json());
+          setCleanupResult(r);
+          setCleanupPreview(null);
+        } catch(e) {
+          alert(`Cleanup failed: ${e.message}`);
+        } finally {
+          setCleanupBusy(false);
+        }
+      };
 
       const domain   = product ? product.domain : customDomain;
       const industry = product ? product.industry : customIndustry;
@@ -211,6 +288,9 @@
           if (cfg.cbUrl)  setCbUrl(cfg.cbUrl);
           if (cfg.cbUser) setCbUser(cfg.cbUser);
           setBackendHasKey(cfg.hasOpenaiKey);
+          // If the server has no env-var key, flip to user-key mode immediately
+          // so the input field appears (rather than the misleading green banner).
+          if (!cfg.hasOpenaiKey) setUseLocalProxy(false);
         }).catch(()=>{});
       }, []);
 
@@ -224,32 +304,75 @@
 
       // ── OpenAI Generation ────────────────────────────────────────────
       const buildProjectPrompt = () => {
-        return `You are a world-class ALM architect. Generate technically accurate Codebeamer demo data for:
+        return `You are a world-class systems engineer and ALM architect with deep domain expertise in ${industry}. Generate technically accurate Codebeamer demo data for:
+
 Domain: ${domain}
 Industry: ${industry}
 
-CRITICAL: Return ONLY raw valid JSON. No markdown. No backticks. No text outside JSON.
-CRITICAL: All string values max 120 chars. No real newlines inside strings. Use \\n only in steps fields.
-CRITICAL: project_key max 8 alphanumeric/underscore chars. No spaces. No hyphens.
-CRITICAL: No apostrophes in any string value.
+CONTEXT — WHAT EACH LAYER REPRESENTS:
+Think of building a real ${domain} product. The hierarchy is:
 
-Return this exact structure:
+1. LIBRARY PROJECTS (6 total, grouped into 3 subsystem libraries of 2 each):
+   These are the actual ENGINEERING COMPONENT/SUBSYSTEM projects — the real building blocks that engineers work on.
+   Each project = one specific hardware module, software component, or functional subsystem.
+   Example for Aircraft: "Flight Control Computer", "Inertial Navigation Unit", "Hydraulic Actuation System", "Fly-by-Wire Bus Controller", "Engine FADEC Interface", "Autopilot Mode Logic"
+   Example for MRI: "Gradient Amplifier", "RF Transmit Chain", "Superconducting Magnet Controller", "Image Reconstruction Engine", "Patient Table Drive", "Shim Coil Controller"
+   Example for Automotive: "Battery Management System", "Traction Inverter", "ADAS Sensor Fusion", "Brake-by-Wire ECU", "Infotainment Head Unit", "OTA Update Manager"
+   IMPORTANT: Use REAL component names that an engineer in this domain would immediately recognize. Be specific — not generic labels like "Module A" or "Processing System".
+
+2. LIBRARY STREAMS (3 total, each groups 2 related library projects):
+   These represent the 3 major subsystem domains/disciplines. Each contains 2 of the 6 library projects above.
+   Example for Aircraft: "Avionics Library", "Flight Controls Library", "Propulsion Interface Library"
+   Example for MRI: "Magnet Subsystem Library", "RF Subsystem Library", "Computing Platform Library"
+
+3. PRODUCT LINE STREAMS (2 total) — these are PRODUCT PLATFORMS or MARKET CATEGORIES:
+   A product line = a family/class of products that share the same core components but target different markets.
+   Example for Aircraft: "Commercial Narrow-Body Platform", "Business Jet Platform"
+   Example for MRI: "High-Field Clinical Platform", "Wide-Bore Interventional Platform"
+   Example for Automotive: "Premium EV Sedan Platform", "Urban Mobility Platform"
+
+4. PL_PROJECTS (1 per product line stream, 2 total):
+   These are integration/platform-level projects specific to each product line — they handle cross-subsystem integration, platform-level validation, and configuration for that product family.
+   Example for Aircraft: "Narrow-Body Systems Integration", "Business Jet Avionics Integration"
+   Name them so it is clear they belong to the platform, not a single component.
+
+5. TRANSFORM STREAMS (2 total): Integration staging area. Mirrors PL streams. Parent = corresponding PL stream.
+
+6. RELEASE STREAMS (3 total) — these are SPECIFIC PRODUCT MODELS being released:
+   Each release = a concrete, shippable product with a plausible (fictional) model name.
+   Example for Aircraft: "SkyLance 320neo", "AeroVista G700", "CloudRunner 220"
+   Example for MRI: "Panorama Forte 3.0T", "ClarityVue 1.5T Open", "NeuroEdge 7T Research"
+   Example for Automotive: "Volterra GT 2026", "Spark City EV", "Apex Crossover AWD"
+   IMPORTANT: These must sound like REAL product names — specific, marketable, with model numbers or descriptive suffixes. Never use generic names like "Release 1.0" or "Product A".
+
+7. RELEASE_PROJECTS (1 per release stream, 3 total):
+   Release-specific verification, packaging, compliance, or certification projects for each product release.
+   Example: "SkyLance 320neo Type Certification", "Panorama Forte 3.0T FDA Submission", "Volterra GT 2026 Homologation"
+
+CRITICAL FORMAT RULES:
+- Return ONLY raw valid JSON. No markdown. No backticks. No text outside JSON.
+- All string values max 120 chars. No real newlines inside strings. Use \\n only in steps fields.
+- project_key max 8 alphanumeric/underscore chars. No spaces. No hyphens.
+- No apostrophes in any string value.
+- Make project_key values intuitive abbreviations of the project name (e.g. "FLTCTRL" not "PRJ001").
+
+Return this exact JSON structure:
 {
-  "domain_name": "short label",
+  "domain_name": "short label for ${domain}",
   "projects": [
     {
       "project_key": "MAXEIGHT",
-      "project_name": "Meaningful Subsystem Name",
-      "description": "What this project holds, max 80 chars",
-      "subsystem": "Which subsystem this belongs to",
+      "project_name": "Specific Component or Subsystem Name",
+      "description": "What this engineering component does, max 80 chars",
+      "subsystem": "Which of the 3 subsystem domains this belongs to",
       "requirements": [
         {
-          "title": "The [component] shall [verb] [value+unit] per [standard]",
+          "title": "The [specific component] shall [verb] [measurable value+unit] per [real standard]",
           "description": "One sentence technical context max 100 chars.",
           "priority": "High",
           "level": "System",
           "test_cases": [{
-            "title": "Verify [aspect] under [condition]",
+            "title": "Verify [specific measurable aspect] under [realistic condition]",
             "description": "Test objective max 80 chars.",
             "steps": "1. Setup per standard\\n2. Apply stimulus\\n3. Measure with instrument",
             "expected_result": "Specific measurable criterion with unit and tolerance"
@@ -261,19 +384,19 @@ Return this exact structure:
   "pl_projects": [
     {
       "project_key": "PLPRJ1",
-      "project_name": "Product-Line-Level Integration Project",
-      "description": "Cross-subsystem integration or validation project specific to this product line",
+      "project_name": "Platform Integration Project Name",
+      "description": "Cross-subsystem integration project for this product family",
       "stream_key": "PL_XXX",
       "requirements": [
         {
-          "title": "The [integration aspect] shall [verb] [value+unit] per [standard]",
-          "description": "Cross-subsystem integration requirement, max 100 chars.",
+          "title": "The [platform] shall [integrate/validate] [cross-system aspect] per [standard]",
+          "description": "Platform-level integration requirement, max 100 chars.",
           "priority": "High",
           "level": "System",
           "test_cases": [{
-            "title": "Verify [integration aspect] under [condition]",
+            "title": "Verify [platform integration aspect] under [operating condition]",
             "description": "Integration test objective max 80 chars.",
-            "steps": "1. Configure subsystems\\n2. Execute integration scenario\\n3. Verify end-to-end",
+            "steps": "1. Configure all subsystems\\n2. Execute end-to-end scenario\\n3. Verify system-level behavior",
             "expected_result": "Specific measurable criterion with unit and tolerance"
           }]
         }
@@ -283,19 +406,19 @@ Return this exact structure:
   "release_projects": [
     {
       "project_key": "RELPRJ1",
-      "project_name": "Release-Specific Verification Project",
-      "description": "Release validation, packaging, or certification project specific to this release",
+      "project_name": "Product Model Certification/Validation Project",
+      "description": "Release validation and compliance for this specific product",
       "stream_key": "REL_XXX",
       "requirements": [
         {
-          "title": "The [release deliverable] shall [verb] [value+unit] per [standard]",
-          "description": "Release verification requirement, max 100 chars.",
+          "title": "The [product model] shall [comply/demonstrate] [certification criterion] per [standard]",
+          "description": "Release-specific compliance or packaging requirement, max 100 chars.",
           "priority": "High",
           "level": "System",
           "test_cases": [{
-            "title": "Verify [release aspect] under [condition]",
+            "title": "Verify [product release aspect] meets [regulatory/market requirement]",
             "description": "Release validation test objective max 80 chars.",
-            "steps": "1. Prepare release package\\n2. Execute verification\\n3. Validate compliance",
+            "steps": "1. Prepare final release build\\n2. Execute certification test\\n3. Document compliance evidence",
             "expected_result": "Specific measurable pass/fail criterion"
           }]
         }
@@ -303,43 +426,65 @@ Return this exact structure:
     }
   ],
   "library_streams": [
-    { "stream_key": "LIB_XXX", "stream_name": "Descriptive Name", "description": "max 80 chars", "project_keys": ["KEY1","KEY2"], "parent_stream_key": null }
+    { "stream_key": "LIB_XXX", "stream_name": "Subsystem Domain Library", "description": "max 80 chars", "project_keys": ["KEY1","KEY2"], "parent_stream_key": null }
   ],
   "product_line_streams": [
-    { "stream_key": "PL_XXX", "stream_name": "Descriptive Name", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": null }
+    { "stream_key": "PL_XXX", "stream_name": "Product Platform or Market Category", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": null }
   ],
   "transform_streams": [
-    { "stream_key": "TR_XXX", "stream_name": "Descriptive Name", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "PL_XXX" }
+    { "stream_key": "TR_XXX", "stream_name": "Transform for Product Platform", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "PL_XXX" }
   ],
   "release_streams": [
-    { "stream_key": "REL_XXX", "stream_name": "Fictional Product Release", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "TR_XXX" }
+    { "stream_key": "REL_XXX", "stream_name": "Fictional Product Model Name with Version", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "TR_XXX" }
   ]
 }
 
 STRICT QUANTITIES:
-- projects: exactly 6 (3 subsystem domains x 2 projects each) — these are LIBRARY projects
+- projects: exactly 6 (3 subsystem domains x 2 projects each) — these are LIBRARY projects representing real components
 - pl_projects: exactly 1 per product_line_stream (2 total). Each has stream_key matching its PL stream
 - release_projects: exactly 1 per release_stream (3 total). Each has stream_key matching its release stream
 - Each library project: exactly 5 requirements, each with 1 test case
-- Each pl_project: exactly 3 requirements, each with 1 test case
-- Each release_project: exactly 3 requirements, each with 1 test case
-- library_streams: exactly 3 (one per subsystem, each references its 2 library projects)
+- Each pl_project: exactly 5 requirements, each with 1 test case
+- Each release_project: exactly 5 requirements, each with 1 test case
+- library_streams: exactly 3 (one per subsystem domain, each references its 2 library projects)
 - product_line_streams: exactly 2 (each references ALL 6 library project keys only)
 - transform_streams: exactly 2 (each references ALL 6 library project keys only, parent = a PL stream)
 - release_streams: exactly 3 (each references ALL 6 library project keys only, parent = a Transform stream)
 
-CONTENT RULES:
-- Use real standards: IEC 60601/62304 for medical, ISO 26262 for automotive, DO-178C for avionics
-- Requirements: shall-style with measurable values, units, tolerances
-- Release stream_name: plausible fictional product names, never real trademarks
-- 3 library streams must cover DISTINCT technical subsystems of ${domain}
-- All keys globally unique, max 8 chars`;
+CONTENT QUALITY RULES:
+- Use real industry standards: IEC 60601/62304 for medical, ISO 26262 for automotive, DO-178C/DO-254 for avionics, IEC 61508 for industrial
+- Requirements: shall-style with specific measurable values, units, tolerances (e.g. "within 50ms", "accuracy of +/-0.5mm", "at least 99.99% availability")
+- Library project names: REAL component names an engineer would recognize — be specific and technical
+- PL stream names: product platform or market category names (not generic "Product Line 1")
+- Release stream names: plausible FICTIONAL product model names with version/model numbers — they should sound marketable and specific, never real trademarks
+- 3 library streams must cover genuinely DISTINCT technical subsystem domains of ${domain}
+- All keys globally unique, max 8 chars, should be intuitive abbreviations`;
       };
 
       const generateProjects = async () => {
         if (!domain.trim()) return;
         setGenerating(true);
         setErr("");
+        setGenStage("Starting new log session...");
+
+        // Start a new log file on the server for this generation run
+        try {
+          await fetch("/api/log/new-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              label: "generate",
+              domain: domain,
+              mode: DRY_RUN ? "DRY_RUN" : "LIVE",
+            }),
+          });
+        } catch(e) {
+          console.warn("Could not start log session:", e.message);
+        }
+
+        // Reset category flag so it re-creates if domain changed
+        categoryCreated.current = false;
+
         setGenStage("Connecting to OpenAI GPT-4o...");
 
         try {
@@ -348,17 +493,25 @@ CONTENT RULES:
           const payload = {
             model: "gpt-4o",
             temperature: 0.3,
-            max_tokens: 8192,
+            // 8192 was too tight for IGT-class schemas (6 lib + 2 PL + 5 release
+            // projects × 5 reqs × 2 TCs each). Backend allows up to 16384.
+            max_tokens: 16384,
             messages: [
               { role: "system", content: "You are a world-class ALM architect. Return ONLY raw valid JSON. No markdown, no code fences, no preamble." },
               { role: "user", content: buildProjectPrompt() },
             ],
           };
 
-          // Always call through backend proxy (credentials stay server-side)
+          // Always call through backend proxy (credentials stay server-side).
+          // If user pasted a key in the UI, forward it as X-OpenAI-Key — backend
+          // prefers this header over OPENAI_API_KEY env var.
+          const oaiHeaders = { "Content-Type": "application/json" };
+          if (!useLocalProxy && openaiKey.trim()) {
+            oaiHeaders["X-OpenAI-Key"] = openaiKey.trim();
+          }
           const resp = await fetch("/api/openai/generate", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: oaiHeaders,
             body: JSON.stringify(payload),
           });
 
@@ -369,10 +522,22 @@ CONTENT RULES:
           }
           const data = await resp.json();
           const rawText = data.choices?.[0]?.message?.content || "";
+          const finishReason = data.choices?.[0]?.finish_reason || "";
+          const usage = data.usage || {};
           if (!rawText.trim()) throw new Error("Empty response from OpenAI");
+          // If the model hit max_tokens, it returned a truncated JSON — give the
+          // user a precise error instead of the cryptic "JSON repair failed".
+          if (finishReason === "length") {
+            throw new Error(`OpenAI response was truncated (finish_reason=length, completion_tokens=${usage.completion_tokens || "?"} / max_tokens=16384). Try a smaller domain template or fewer release products.`);
+          }
 
           setGenStage("Parsing AI response...");
-          const parsed = parseAIJson(rawText);
+          let parsed;
+          try {
+            parsed = parseAIJson(rawText);
+          } catch (e) {
+            throw new Error(`JSON repair failed (finish_reason=${finishReason}, completion_tokens=${usage.completion_tokens || "?"}). Raw response starts: ${rawText.slice(0, 200)}…`);
+          }
           if (!parsed.projects?.length) throw new Error("No projects in AI response");
 
           // Tag library projects
@@ -429,6 +594,7 @@ CONTENT RULES:
           setReqCounts({});
           setStreamStatus({});
           setStreamIds({});
+          streamIdsRef.current = {};
           setStreamErrors({});
           setStep(1);
         } catch(e) {
@@ -456,17 +622,19 @@ CONTENT RULES:
         const text = await r.text();
         return text ? JSON.parse(text) : null;
       };
-      const cbGet  = (path) => cbFetch("GET", path);
-      const cbPost = (path, body) => cbFetch("POST", path, body);
-      const cbPut  = (path, body) => cbFetch("PUT", path, body);
+      const cbGet   = (path) => cbFetch("GET", path);
+      const cbPost  = (path, body) => cbFetch("POST", path, body);
+      const cbPut   = (path, body) => cbFetch("PUT", path, body);
+      const cbPatch = (path, body) => cbFetch("PATCH", path, body);
 
-      const cbPostV1 = async (path, body) => {
+      const cbFetchV1 = async (method, path, body = null) => {
         const url = `/api/cb/v1/${path.replace(/^\//, "")}`;
-        const r = await fetch(url, {
-          method: "POST",
+        const opts = {
+          method,
           headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(body),
-        });
+        };
+        if (body) opts.body = JSON.stringify(body);
+        const r = await fetch(url, opts);
         if (!r.ok) {
           let detail = "";
           try { detail = await r.text(); } catch(_) {}
@@ -475,15 +643,125 @@ CONTENT RULES:
         const text = await r.text();
         return text ? JSON.parse(text) : null;
       };
+      const cbGetV1  = (path) => cbFetchV1("GET", path);
+      const cbPostV1 = (path, body) => cbFetchV1("POST", path, body);
 
       // ── Project creation ─────────────────────────────────────────────
+      const categoryName = domain || "Demo";
+      const categoryCreated = useRef(false);
+
+      const ensureCategoryExists = async () => {
+        if (categoryCreated.current || DRY_RUN) return;
+        try {
+          const catResp = await fetch("/api/cb/api/projects/category", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({ categoryName: categoryName }),
+          });
+          if (catResp.ok) {
+            console.log("Category pre-created:", await catResp.json());
+          } else {
+            console.log("Category pre-creation response:", catResp.status, await catResp.text());
+          }
+          categoryCreated.current = true;
+          // Wait for CB to finish provisioning the category
+          await new Promise(r => setTimeout(r, 5000));
+        } catch(e) {
+          console.warn("Category pre-creation failed (continuing):", e.message);
+          categoryCreated.current = true; // Don't retry on every project
+        }
+      };
+
+      // Resolve trackers (req, TC, Verifies field) for a given project ID
+      const resolveProjectTrackers = async (pid, idx) => {
+        const trackers = await cbGet(`projects/${pid}/trackers`);
+        const trackerList = Array.isArray(trackers) ? trackers : (trackers?.trackers || trackers?.items || []);
+
+        let reqTrackerId = null, tcTrackerId = null;
+        let reqTrackerName = "", tcTrackerName = "";
+        let fallbackReqId = null, fallbackReqName = "";
+
+        for (const t of trackerList) {
+          const name = (t.name || "").toLowerCase();
+          if (name.includes("system") && name.includes("requirement")) {
+            reqTrackerId = t.id; reqTrackerName = t.name;
+          }
+          if (name.includes("requirement") && !fallbackReqId) {
+            fallbackReqId = t.id; fallbackReqName = t.name;
+          }
+          if (name.includes("test") && name.includes("case") && !tcTrackerId) {
+            tcTrackerId = t.id; tcTrackerName = t.name;
+          }
+        }
+        if (!reqTrackerId && fallbackReqId) {
+          reqTrackerId = fallbackReqId; reqTrackerName = fallbackReqName;
+        }
+
+        let verifiesFieldId = null;
+        if (tcTrackerId) {
+          try {
+            const schema = await cbGet(`trackers/${tcTrackerId}/schema`);
+            const fields = schema?.fields || (Array.isArray(schema) ? schema : []);
+            for (const f of fields) {
+              const fn = (f.name || "").toLowerCase();
+              if (fn === "verifies" || fn.includes("verifies")) {
+                verifiesFieldId = f.id || f.fieldId; break;
+              }
+            }
+          } catch(_) {}
+        }
+
+        setProjectIds(prev => ({ ...prev, [idx]: pid }));
+        setProjectTrackers(prev => ({ ...prev, [idx]: {
+          reqTrackerId, tcTrackerId, verifiesFieldId, reqTrackerName, tcTrackerName
+        }}));
+        setProjectStatus(prev => ({ ...prev, [idx]: "done" }));
+      };
+
+      // Helper: fetch all projects in the category from CB
+      const fetchCategoryProjects = async () => {
+        try {
+          const cbProjects = await cbGetV1(
+            `projects/page/1?pagesize=500&category=${encodeURIComponent(categoryName)}`
+          );
+          const projectList = cbProjects?.projects || cbProjects || [];
+          return Array.isArray(projectList) ? projectList : [];
+        } catch(e) {
+          console.warn("fetchCategoryProjects failed:", e.message);
+          return [];
+        }
+      };
+
+      // Helper: find project by name in CB
+      const findProjectInCB = async (projectName) => {
+        const list = await fetchCategoryProjects();
+        for (const p of list) {
+          if ((p.name || "").toLowerCase() === projectName.toLowerCase()) {
+            return p.id || (p.uri ? parseInt(p.uri.split("/").pop()) : null);
+          }
+        }
+        return null;
+      };
+
+      // Helper: generate a unique project key that doesn't conflict with existing CB projects
+      const makeUniqueKey = async (baseKey) => {
+        // Fetch all existing projects to check for key conflicts
+        // CB v1 project list doesn't always return keyName, so we check by trying
+        // First, just try the base key truncated to 8 chars
+        const key = baseKey.substring(0, 8).toUpperCase();
+        // Try the key — if POST fails with "same name", we'll get a conflict
+        // Generate a unique key with a timestamp suffix
+        const suffix = Date.now().toString(36).slice(-3).toUpperCase(); // 3-char alphanumeric
+        const uniqueKey = (key.substring(0, 5) + suffix).substring(0, 8);
+        return uniqueKey;
+      };
+
       const createProject = async (idx) => {
         const p = struct.projects[idx];
         setProjectStatus(prev => ({ ...prev, [idx]: "creating" }));
         setProjectErrors(prev => { const n = {...prev}; delete n[idx]; return n; });
 
         if (DRY_RUN) {
-          // Simulate — no API calls
           await new Promise(r => setTimeout(r, 300));
           const fakePid = 10000 + idx;
           setProjectIds(prev => ({ ...prev, [idx]: fakePid }));
@@ -496,66 +774,81 @@ CONTENT RULES:
         }
 
         try {
-          const result = await cbPostV1("project", {
-            name: p.project_name,
-            keyName: p.project_key.substring(0, 8),
-            description: p.description || p.project_name,
-          });
-          const pid = result?.id || (result?.uri ? parseInt(result.uri.split("/").pop()) : null);
-          if (!pid) throw new Error("No project ID in response");
+          // Ensure category exists before first project creation
+          await ensureCategoryExists();
 
-          const trackers = await cbGet(`projects/${pid}/trackers`);
-          const trackerList = Array.isArray(trackers) ? trackers : (trackers?.trackers || trackers?.items || []);
-
-          // Find trackers — prefer "System Requirement" over "Customer Requirement"
-          let reqTrackerId = null, tcTrackerId = null;
-          let reqTrackerName = "", tcTrackerName = "";
-          let fallbackReqId = null, fallbackReqName = "";
-
-          for (const t of trackerList) {
-            const name = (t.name || "").toLowerCase();
-            if (name.includes("system") && name.includes("requirement")) {
-              reqTrackerId = t.id;
-              reqTrackerName = t.name;
-            }
-            if (name.includes("requirement") && !fallbackReqId) {
-              fallbackReqId = t.id;
-              fallbackReqName = t.name;
-            }
-            if (name.includes("test") && name.includes("case") && !tcTrackerId) {
-              tcTrackerId = t.id;
-              tcTrackerName = t.name;
-            }
-          }
-          if (!reqTrackerId && fallbackReqId) {
-            reqTrackerId = fallbackReqId;
-            reqTrackerName = fallbackReqName;
+          // Step 1: Check if project already exists in CB (from a previous run)
+          const existingPid = await findProjectInCB(p.project_name);
+          if (existingPid) {
+            console.log(`Project "${p.project_name}" already exists (ID: ${existingPid}), resolving trackers...`);
+            setProjectErrors(prev => ({ ...prev, [idx]: `Already exists (ID: ${existingPid}), resolving...` }));
+            await resolveProjectTrackers(existingPid, idx);
+            setProjectErrors(prev => { const n = {...prev}; delete n[idx]; return n; });
+            return;
           }
 
-          // Discover the Verifies field ID from the TC tracker schema
-          let verifiesFieldId = null;
-          if (tcTrackerId) {
+          // Step 2: Try to create project. On key conflict (403 "under creation"),
+          // retry with a unique key since CB rejects duplicate keyNames with this error.
+          const MAX_RETRIES = 3;
+          const RETRY_DELAY = 10000;
+          let pid = null;
+          let currentKey = p.project_key.substring(0, 8);
+
+          for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            const projectBody = {
+              name: p.project_name,
+              keyName: currentKey,
+              description: p.description || p.project_name,
+              category: categoryName,
+            };
+
             try {
-              const schema = await cbGet(`trackers/${tcTrackerId}/schema`);
-              const fields = schema?.fields || schema?.schema?.fields || [];
-              for (const f of fields) {
-                const fn = (f.name || "").toLowerCase();
-                if (fn === "verifies" || fn.includes("verifies")) {
-                  verifiesFieldId = f.id || f.fieldId;
-                  break;
-                }
+              setProjectErrors(prev => ({ ...prev, [idx]: attempt > 0 ? `Retrying with key "${currentKey}"... (${attempt + 1}/${MAX_RETRIES + 1})` : "Creating..." }));
+              const result = await cbPostV1("project", projectBody);
+              pid = result?.id || (result?.uri ? parseInt(result.uri.split("/").pop()) : null);
+              if (pid) break;
+            } catch(e) {
+              const isConflict = e.message && (
+                e.message.includes("under creation") ||
+                e.message.includes("already exists") ||
+                e.message.includes("409")
+              );
+              if (!isConflict) throw e;
+
+              console.log(`Project "${p.project_name}" key "${currentKey}" — conflict (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${e.message}`);
+
+              // Check if CB actually created it despite the error
+              await new Promise(r => setTimeout(r, 5000));
+              const foundPid = await findProjectInCB(p.project_name);
+              if (foundPid) {
+                console.log(`Project "${p.project_name}" found in CB after conflict (ID: ${foundPid})`);
+                pid = foundPid;
+                break;
               }
-            } catch(_) {
-              console.warn("Could not fetch TC tracker schema for Verifies field discovery");
+
+              if (attempt < MAX_RETRIES) {
+                // Generate a new unique key and retry
+                const suffix = Date.now().toString(36).slice(-3).toUpperCase();
+                currentKey = (p.project_key.substring(0, 5) + suffix).substring(0, 8);
+                console.log(`Retrying with new key: "${currentKey}"`);
+                setProjectErrors(prev => ({
+                  ...prev,
+                  [idx]: `Key conflict — retrying with key "${currentKey}" in ${RETRY_DELAY/1000}s...`
+                }));
+                await new Promise(r => setTimeout(r, RETRY_DELAY));
+              } else {
+                throw new Error(`Key conflict after ${MAX_RETRIES + 1} attempts. Delete old projects in CB or use a different domain.`);
+              }
             }
           }
 
-          setProjectIds(prev => ({ ...prev, [idx]: pid }));
-          setProjectTrackers(prev => ({ ...prev, [idx]: {
-            reqTrackerId, tcTrackerId, verifiesFieldId,
-            reqTrackerName, tcTrackerName
-          }}));
-          setProjectStatus(prev => ({ ...prev, [idx]: "done" }));
+          if (!pid) throw new Error("No project ID returned from CB");
+
+          // Step 3: Resolve trackers
+          setProjectErrors(prev => ({ ...prev, [idx]: "Resolving trackers..." }));
+          await resolveProjectTrackers(pid, idx);
+          setProjectErrors(prev => { const n = {...prev}; delete n[idx]; return n; });
+
         } catch(e) {
           setProjectStatus(prev => ({ ...prev, [idx]: "error" }));
           setProjectErrors(prev => ({ ...prev, [idx]: e.message }));
@@ -563,14 +856,86 @@ CONTENT RULES:
       };
 
       const createAllProjects = async () => {
-        const pending = struct.projects
-          .map((_, i) => i)
-          .filter(i => projectStatus[i] !== "done");
-        await Promise.allSettled(pending.map(i => createProject(i)));
+        if (creatingAllProjects) return; // guard against double-click
+        setCreatingAllProjects(true);
+        try {
+          // Category pre-creation is handled automatically by ensureCategoryExists()
+          // inside createProject() — runs once on first project, then skips.
+
+          // Create projects sequentially with 10s delay between each.
+          // CB needs time to finish background provisioning (trackers, templates)
+          // before accepting the next project creation.
+          const pending = struct.projects
+            .map((_, i) => i)
+            .filter(i => projectStatus[i] !== "done");
+          for (let pi = 0; pi < pending.length; pi++) {
+            if (pi > 0) await new Promise(r => setTimeout(r, 10000));
+            await createProject(pending[pi]);
+          }
+        } finally {
+          setCreatingAllProjects(false);
+        }
       };
 
       const allProjectsCreated = struct?.projects?.length > 0 &&
         struct.projects.every((_, i) => projectStatus[i] === "done");
+
+      // ── Validate & resolve all projects before proceeding ───────────
+      const [validating, setValidating] = useState(false);
+
+      const validateAndProceed = async (nextStep) => {
+        if (DRY_RUN) { setStep(nextStep); return; }
+        if (allProjectsCreated) { setStep(nextStep); return; }
+
+        setValidating(true);
+        try {
+          // Fetch all projects in this category from CB
+          const cbProjects = await cbGetV1(`projects/page/1?pagesize=500&category=${encodeURIComponent(categoryName)}`);
+          const projectList = cbProjects?.projects || cbProjects || [];
+
+          // Build a lookup by project name for matching
+          const cbByName = {};
+          for (const p of (Array.isArray(projectList) ? projectList : [])) {
+            const name = p.name || "";
+            cbByName[name.toLowerCase()] = p;
+          }
+
+          const missing = [];
+          for (let i = 0; i < struct.projects.length; i++) {
+            // Already resolved — skip
+            if (projectStatus[i] === "done" && projectIds[i]) continue;
+
+            const p = struct.projects[i];
+            const match = cbByName[p.project_name.toLowerCase()];
+
+            if (!match) {
+              missing.push(p.project_name);
+              continue;
+            }
+
+            const pid = match.id || (match.uri ? parseInt(match.uri.split("/").pop()) : null);
+            if (!pid) { missing.push(p.project_name); continue; }
+
+            // Resolve trackers for this project
+            try {
+              await resolveProjectTrackers(pid, i);
+            } catch(e) {
+              console.warn(`Failed to resolve trackers for ${p.project_name}:`, e.message);
+              missing.push(p.project_name);
+            }
+          }
+
+          if (missing.length > 0) {
+            alert(`Create all projects before proceeding. Missing projects:\n\n${missing.join("\n")}`);
+          } else {
+            setStep(nextStep);
+          }
+        } catch(e) {
+          alert(`Validation failed: ${e.message}`);
+        } finally {
+          setValidating(false);
+        }
+      };
 
       // ── Requirement & TC creation ────────────────────────────────────
       const createTrackerItems = async (idx) => {
@@ -624,23 +989,24 @@ CONTENT RULES:
             });
             tcCount++;
 
-            // Set Verifies field — use discovered field ID, fall back to common IDs
+            // Set Verifies field — PUT /v3/items/{id}/fields with UpdateTrackerItemField body.
+            // The earlier endpoint /v3/items/{id} with customFields triggered a CB 400
+            // ("State transition from New to -- is not defined") because that endpoint
+            // expects a full TrackerItem update; the field-level endpoint is the correct one.
             const verifiesId = trackers.verifiesFieldId;
-            if (verifiesId) {
-              for (const reqId of group) {
-                try {
-                  await cbPut(`items/${tc.id}/fields`, {
-                    fieldValues: [{
-                      fieldId: verifiesId,
-                      name: "Verifies",
-                      type: "ChoiceFieldValue",
-                      values: [{ id: reqId, type: "TrackerItemReference" }],
-                    }],
-                  });
-                  verifyCount++;
-                } catch(e) {
-                  console.warn(`Verifies link failed for TC ${tc.id} -> Req ${reqId}:`, e.message);
-                }
+            if (verifiesId && group.length > 0) {
+              try {
+                await cbPut(`items/${tc.id}/fields`, {
+                  fieldValues: [{
+                    fieldId: verifiesId,
+                    name: "Verifies",
+                    type: "ChoiceFieldValue",
+                    values: group.map(reqId => ({ id: reqId, type: "TrackerItemReference" })),
+                  }],
+                });
+                verifyCount += group.length;
+              } catch(e) {
+                console.warn(`Verifies link PUT failed for TC ${tc.id} -> Reqs [${group.join(",")}]:`, e.message);
               }
             } else {
               console.warn(`No Verifies field found for TC tracker ${trackers.tcTrackerId}. Skipping traceability links.`);
@@ -656,10 +1022,16 @@ CONTENT RULES:
       };
 
       const createAllReqs = async () => {
-        const pending = struct.projects
-          .map((_, i) => i)
-          .filter(i => reqStatus[i] !== "done");
-        await Promise.allSettled(pending.map(i => createTrackerItems(i)));
+        if (creatingAllReqs) return; // guard against double-click
+        setCreatingAllReqs(true);
+        try {
+          const pending = struct.projects
+            .map((_, i) => i)
+            .filter(i => reqStatus[i] !== "done");
+          await Promise.allSettled(pending.map(i => createTrackerItems(i)));
+        } finally {
+          setCreatingAllReqs(false);
+        }
       };
 
       const allReqsCreated = struct?.projects?.length > 0 &&
@@ -695,28 +1067,47 @@ CONTENT RULES:
       // Keep function form for backward compat in render code
       const getProjectToLibraryMap = () => projectToLibraryMap;
 
-      // Get the source stream ID for a specific project being added to a stream
+      // Get the source stream ID for a specific project being added to a stream.
+      // Source is determined by the project's CATEGORY, not the tier alone.
+      // Library and PL streams have NO sourceStreamId at creation (top-level),
+      // so per-project source mapping carries the lineage:
+      //   library project    → its library stream  (PL tier)  / initial (Library tier)
+      //   product_line proj  → initial             (PL tier)
+      //   release project    → initial             (Release tier)
+      //   transform tier     → no PUTs at all (pure inheritance from PL parent)
+      // Reads from streamIdsRef (synchronous) so this works mid-sequential-loop.
       const getSourceForProject = (tierKey, stream, projectKey) => {
-        if (tierKey === "library_streams") return initialStreamId;
-        if (tierKey === "product_line_streams") {
-          // Each project sources from the library stream it belongs to
-          const libKey = projectToLibraryMap[projectKey];
-          if (libKey && streamIds[libKey]) return streamIds[libKey];
-          // Fallback: first available library stream
-          for (const lib of (struct?.library_streams || [])) {
-            if (streamIds[lib.stream_key]) return streamIds[lib.stream_key];
-          }
+        const ids = streamIdsRef.current;
+        const proj = struct?.projects?.find(p => p.project_key === projectKey);
+        const cat = proj?.category;
+
+        if (tierKey === "library_streams") {
+          // All library-tier projects come straight from initial.
           return initialStreamId;
         }
+        if (tierKey === "product_line_streams") {
+          if (cat === "library") {
+            // Library project pulled into a PL stream — source from its library
+            const libKey = projectToLibraryMap[projectKey];
+            if (libKey && ids[libKey]) return ids[libKey];
+            return initialStreamId; // fallback if library stream id not yet known
+          }
+          if (cat === "product_line") {
+            // PL-specific project — source from initial
+            return initialStreamId;
+          }
+          return null; // unknown category — skip
+        }
         if (tierKey === "transform_streams") {
-          // Each project sources from the parent PL stream
-          const parentKey = stream.parent_stream_key;
-          return parentKey ? streamIds[parentKey] : null;
+          // Transform is a pure mirror of its PL parent — no explicit project adds.
+          return null;
         }
         if (tierKey === "release_streams") {
-          // Each project sources from the parent Transform stream
-          const parentKey = stream.parent_stream_key;
-          return parentKey ? streamIds[parentKey] : null;
+          if (cat === "release") {
+            return initialStreamId;
+          }
+          // library/PL projects inherit through Transform — skip
+          return null;
         }
         return null;
       };
@@ -726,6 +1117,7 @@ CONTENT RULES:
         const st = streams[idx];
         const sKey = `${tierKey}_${idx}`;
         setStreamStatus(prev => ({ ...prev, [sKey]: "creating" }));
+        setStreamProgress(prev => ({ ...prev, [sKey]: "Creating stream..." }));
         setStreamErrors(prev => { const n = {...prev}; delete n[sKey]; return n; });
 
         if (DRY_RUN) {
@@ -733,62 +1125,123 @@ CONTENT RULES:
           const fakeSid = 50000 + idx + (tierKey === "product_line_streams" ? 100 : tierKey === "transform_streams" ? 200 : tierKey === "release_streams" ? 300 : 0);
           setStreamIds(prev => ({ ...prev, [st.stream_key]: fakeSid }));
           setStreamStatus(prev => ({ ...prev, [sKey]: "done" }));
+          setStreamProgress(prev => { const n = {...prev}; delete n[sKey]; return n; });
           return;
         }
 
         try {
-          const parentId = (tierKey === "library_streams" || tierKey === "product_line_streams")
-            ? null
-            : (st.parent_stream_key ? streamIds[st.parent_stream_key] : null);
+          // Stream creation policy:
+          //   Library → top-level, NO sourceStreamId (avoids inheriting all 101 initial-stream projects)
+          //   PL      → top-level, NO sourceStreamId (lineage encoded per-project via PUT sourceStreamId)
+          //   Transform → sourceStreamId = parent PL  (pure mirror)
+          //   Release   → sourceStreamId = parent Transform  (release adds release-specific projects on top)
+          // Read from streamIdsRef so this sees siblings created earlier in the same loop.
+          const ids = streamIdsRef.current;
+          let sourceId = null;
+          if (tierKey === "transform_streams" || tierKey === "release_streams") {
+            sourceId = st.parent_stream_key ? ids[st.parent_stream_key] : null;
+          }
+          // library_streams and product_line_streams: sourceId stays null
 
-          const body = { name: st.stream_name, color: "#336699", description: st.description || "" };
-          if (parentId) {
-            body.sourceStreamId = parentId;
+          const body = { name: prefixedStreamName(st.stream_name), color: "#336699", description: st.description || "" };
+          if (sourceId) {
+            body.sourceStreamId = sourceId;
             body.isSourceStreamChecked = true;
           }
           const result = await cbPost("streams/stream", body);
           const sid = result?.id;
           if (!sid) throw new Error("No stream ID in response");
 
+          // Update both the ref (immediate) and the state (for re-render).
+          streamIdsRef.current = { ...streamIdsRef.current, [st.stream_key]: sid };
           setStreamIds(prev => ({ ...prev, [st.stream_key]: sid }));
+          setStreamProgress(prev => ({ ...prev, [sKey]: `Stream created (id ${sid}) — preparing projects...` }));
 
-          // Add each project with its correct per-project source stream
-          let addedCount = 0, failedCount = 0;
+          // Which project categories does this tier explicitly add?
+          //   library_streams      → ["library"]
+          //   product_line_streams → ["library", "product_line"]   (both — library projects get added with their library as source)
+          //   transform_streams    → []  (pure inherit from PL parent)
+          //   release_streams      → ["release"]                   (library + PL projects inherit through Transform)
+          const ownCategoriesByTier = {
+            library_streams: ["library"],
+            product_line_streams: ["library", "product_line"],
+            transform_streams: [],
+            release_streams: ["release"],
+          };
+          const ownCategories = ownCategoriesByTier[tierKey] || [];
+
+          // Pre-compute the work list so progress can show "N of M".
+          const workList = [];
+          let skippedInherited = 0;
           for (const pk of (st.project_keys || [])) {
             const pidIdx = struct.projects.findIndex(p => p.project_key === pk);
-            const pid = projectIds[pidIdx];
-            const sourceId = getSourceForProject(tierKey, st, pk);
-            if (pid && sourceId) {
-              try {
-                await cbPut(`streams/${sid}/projects`, {
-                  projectId: pid,
-                  sourceStreamId: sourceId,
-                  addAllTrackers: true,
-                });
-                addedCount++;
-              } catch(e) {
-                failedCount++;
-                console.warn(`Failed to add project ${pk} to stream ${st.stream_key}:`, e.message);
-              }
+            const proj = struct.projects[pidIdx];
+            if (!proj || !ownCategories.includes(proj.category)) {
+              skippedInherited++;
+              continue;
             }
+            const pid = projectIds[pidIdx];
+            const projSourceId = getSourceForProject(tierKey, st, pk);
+            if (pid && projSourceId) workList.push({ pk, pid, projSourceId });
           }
 
+          if (workList.length === 0) {
+            // Transform tier (or any tier with nothing to add) — pure inheritance.
+            setStreamProgress(prev => ({ ...prev, [sKey]: `Stream created (id ${sid}). Mirroring ${skippedInherited} project(s) from parent stream.` }));
+          }
+
+          let addedCount = 0, failedCount = 0;
+          for (let wi = 0; wi < workList.length; wi++) {
+            const { pk, pid, projSourceId } = workList[wi];
+            setStreamProgress(prev => ({
+              ...prev,
+              [sKey]: `Stream created (id ${sid}). Adding project ${wi + 1} of ${workList.length}: ${pk}...`,
+            }));
+            try {
+              await cbPut(`streams/${sid}/projects`, {
+                projectId: pid,
+                sourceStreamId: projSourceId,
+                addAllTrackers: true,
+              });
+              addedCount++;
+            } catch(e) {
+              failedCount++;
+              console.warn(`Failed to add project ${pk} to stream ${st.stream_key}:`, e.message);
+            }
+          }
+          if (skippedInherited > 0) {
+            console.log(`[${st.stream_key}] added ${addedCount} own-tier project(s), inherited ${skippedInherited} via sourceStreamId`);
+          }
+
+          // Final summary — replaces the in-flight progress with a static success line.
+          const summaryParts = [`Stream id ${sid}`];
+          if (addedCount > 0) summaryParts.push(`${addedCount} project(s) added`);
+          if (failedCount > 0) summaryParts.push(`${failedCount} failed`);
+          if (skippedInherited > 0 && workList.length === 0) summaryParts.push(`${skippedInherited} inherited from parent`);
+          setStreamProgress(prev => ({ ...prev, [sKey]: summaryParts.join(" · ") }));
           setStreamStatus(prev => ({ ...prev, [sKey]: "done" }));
         } catch(e) {
           setStreamStatus(prev => ({ ...prev, [sKey]: "error" }));
+          setStreamProgress(prev => { const n = {...prev}; delete n[sKey]; return n; });
           setStreamErrors(prev => ({ ...prev, [sKey]: e.message }));
         }
       };
 
       const createAllStreams = async () => {
-        for (const tier of TIERS) {
-          const streams = struct[tier.key] || [];
-          for (let i = 0; i < streams.length; i++) {
-            const sKey = `${tier.key}_${i}`;
-            if (streamStatus[sKey] !== "done") {
-              await createStream(tier.key, i);
+        if (creatingAllStreams) return; // guard against double-click
+        setCreatingAllStreams(true);
+        try {
+          for (const tier of TIERS) {
+            const streams = struct[tier.key] || [];
+            for (let i = 0; i < streams.length; i++) {
+              const sKey = `${tier.key}_${i}`;
+              if (streamStatus[sKey] !== "done") {
+                await createStream(tier.key, i);
+              }
             }
           }
+        } finally {
+          setCreatingAllStreams(false);
         }
       };
 
@@ -815,12 +1268,20 @@ CONTENT RULES:
                 {DRY_RUN
                   ? "DRY RUN — Create buttons simulate success without calling APIs."
                   : "LIVE MODE — Create buttons will make real API calls to Codebeamer."}
+                {struct && <span style={{ marginLeft:8, fontStyle:"italic", opacity:0.85 }}>
+                  (locked — go back to Step 1 and re-generate to switch modes)
+                </span>}
               </span>
-              <label style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer", fontWeight:500 }}>
+              <label style={{
+                display:"flex", alignItems:"center", gap:6, fontWeight:500,
+                cursor: struct ? "not-allowed" : "pointer",
+                opacity: struct ? 0.5 : 1,
+              }}>
                 <span>{DRY_RUN ? "Dry Run" : "Live"}</span>
                 <input type="checkbox" checked={DRY_RUN}
+                  disabled={!!struct}
                   onChange={(e) => setDryRun(e.target.checked)}
-                  style={{ width:16, height:16, cursor:"pointer" }}
+                  style={{ width:16, height:16, cursor: struct ? "not-allowed" : "pointer" }}
                 />
               </label>
             </div>
@@ -831,7 +1292,28 @@ CONTENT RULES:
           {/* ══ Step 0: Product Selection ════════════════════════════ */}
           {step === 0 && (
             <div>
-              <div style={{ fontSize:14, fontWeight:500, marginBottom:10 }}>Select a product domain</div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                <div style={{ fontSize:14, fontWeight:500 }}>Select a product domain</div>
+                <span
+                  onClick={() => {
+                    setProduct(null);
+                    setCustomDomain("");
+                    setCustomIndustry("");
+                    setOpenaiKey("");
+                    setSessionPrefix(buildSessionPrefix());
+                    setErr("");
+                    setStruct(null);
+                    streamIdsRef.current = {};
+                    // Re-fetch backend config so OpenAI mode reflects current env vars
+                    fetch("/api/config").then(r=>r.json()).then(cfg => {
+                      setBackendHasKey(cfg.hasOpenaiKey);
+                      setUseLocalProxy(!!cfg.hasOpenaiKey);
+                    }).catch(()=>{});
+                  }}
+                  style={{ fontSize:11, cursor:"pointer", textDecoration:"underline", color:"var(--text-secondary)" }}>
+                  Reset form
+                </span>
+              </div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:16 }}>
                 {PRODUCTS.map(p => (
                   <div key={p.id} onClick={() => setProduct(product?.id===p.id ? null : p)}
@@ -888,11 +1370,25 @@ CONTENT RULES:
                     <input type="password" style={inputStyle} value={cbPass} onChange={e=>setCbPass(e.target.value)} placeholder="password" />
                   </div>
                 </div>
+                <div>
+                  <div style={{ fontSize:12, color:"var(--text-secondary)", marginBottom:4 }}>
+                    Stream name prefix
+                    <span style={{ marginLeft:6, fontSize:11, opacity:0.7 }}>
+                      — tags every stream this run creates so you can find/group them later (CB doesn't allow stream delete)
+                    </span>
+                  </div>
+                  <input
+                    style={inputStyle}
+                    value={sessionPrefix}
+                    onChange={e=>setSessionPrefix(e.target.value.replace(/[^\w-]/g, ""))}
+                    placeholder="e.g. 260425-2103 (leave blank to disable)"
+                  />
+                </div>
               </div>
 
               {/* OpenAI */}
               <div style={{ fontSize:14, fontWeight:500, marginBottom:8 }}>OpenAI API Key</div>
-              {useLocalProxy ? (
+              {useLocalProxy && backendHasKey ? (
                 <div style={{ padding:"10px 14px", borderRadius:8, background:"#D1FAE5",
                   border:"1px solid #A7F3D0", fontSize:12, color:"#065F46", marginBottom:6 }}>
                   Using OPENAI_API_KEY from server environment variable.
@@ -904,7 +1400,7 @@ CONTENT RULES:
               ) : (
                 <div>
                   <input type="password" style={{...inputStyle, marginBottom:6}} value={openaiKey}
-                    onChange={e=>setOpenaiKey(e.target.value)} placeholder="sk-..." />
+                    onChange={e=>{ setOpenaiKey(e.target.value); if (err) setErr(""); }} placeholder="sk-..." />
                   <div style={{ fontSize:11, color:"var(--text-tertiary)", marginBottom:6 }}>
                     Key is sent to the local backend proxy only (never to external servers from the browser).
                     {" "}
@@ -945,12 +1441,33 @@ CONTENT RULES:
                     Review and create each project in Codebeamer. Uses default template.
                   </div>
                 </div>
-                <button style={smallBtnStyle(true)} onClick={createAllProjects}>
-                  Create All
+                <button
+                  style={creatingAllProjects ? { ...smallBtnStyle(true), opacity:0.5, cursor:"not-allowed" } : smallBtnStyle(true)}
+                  disabled={creatingAllProjects}
+                  onClick={createAllProjects}
+                >
+                  {creatingAllProjects ? "Creating..." : "Create All"}
                 </button>
               </div>
 
-              {/* Render projects grouped by category */}
+              {/* Project Category */}
+              <div style={{
+                marginBottom:16, padding:"10px 14px", borderRadius:8,
+                border: "1px solid #A7F3D0", background: "#D1FAE5",
+                display:"flex", alignItems:"center", gap:8,
+              }}>
+                <span style={{ fontSize:16 }}>&#128193;</span>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:500, color:"#065F46" }}>
+                    Project Category: <span style={{ fontWeight:600 }}>{categoryName}</span>
+                  </div>
+                  <div style={{ fontSize:11, color:"#065F46", opacity:0.8 }}>
+                    All projects will be created under this category in Codebeamer.
+                  </div>
+                </div>
+              </div>
+
+              {/* Render projects grouped by type */}
               {[
                 { cat: "library", label: "Library Projects", desc: "Core subsystem projects (2 per library stream)", clr: "#0F6E56", bg: "#E1F5EE" },
                 { cat: "product_line", label: "Product Line Projects", desc: "Cross-subsystem integration projects (1 per PL stream)", clr: "#534AB7", bg: "#EEEDFE" },
@@ -1045,11 +1562,11 @@ CONTENT RULES:
               <div style={{ display:"flex", gap:10, marginTop:16 }}>
                 <button style={btnStyle(false)} onClick={() => setStep(0)}>Back</button>
                 <button
-                  style={(allProjectsCreated || DRY_RUN) ? btnStyle(true) : btnDisabled}
-                  disabled={!(allProjectsCreated || DRY_RUN)}
-                  onClick={() => setStep(2)}
+                  style={validating ? btnDisabled : btnStyle(true)}
+                  disabled={validating}
+                  onClick={() => validateAndProceed(2)}
                 >
-                  Continue to Requirements
+                  {validating ? "Validating projects..." : "Continue to Requirements"}
                 </button>
               </div>
             </div>
@@ -1065,8 +1582,12 @@ CONTENT RULES:
                     5 requirements + 2 test cases per project. TC1 verifies reqs 1-3, TC2 verifies reqs 4-5.
                   </div>
                 </div>
-                <button style={smallBtnStyle(true)} onClick={createAllReqs}>
-                  Create All
+                <button
+                  style={creatingAllReqs ? { ...smallBtnStyle(true), opacity:0.5, cursor:"not-allowed" } : smallBtnStyle(true)}
+                  disabled={creatingAllReqs}
+                  onClick={createAllReqs}
+                >
+                  {creatingAllReqs ? "Creating..." : "Create All"}
                 </button>
               </div>
 
@@ -1147,8 +1668,12 @@ CONTENT RULES:
                     {initialStreamId && <span> Initial Stream ID: <strong>{initialStreamId}</strong></span>}
                   </div>
                 </div>
-                <button style={smallBtnStyle(true)} onClick={createAllStreams}>
-                  Create All
+                <button
+                  style={creatingAllStreams ? { ...smallBtnStyle(true), opacity:0.5, cursor:"not-allowed" } : smallBtnStyle(true)}
+                  disabled={creatingAllStreams}
+                  onClick={createAllStreams}
+                >
+                  {creatingAllStreams ? "Creating..." : "Create All"}
                 </button>
               </div>
 
@@ -1168,8 +1693,14 @@ CONTENT RULES:
                     {streams.map((st, idx) => {
                       const sKey = `${tier.key}_${idx}`;
                       const status = streamStatus[sKey] || "pending";
+                      const progressMsg = streamProgress[sKey];
                       const allProjects = struct.projects || [];
                       const selectedKeys = st.project_keys || [];
+
+                      // Lock individual Create buttons while ANY stream is in flight
+                      // (prevents the user from kicking off a parallel chain after CB's
+                      // toast says "Stream Created Successfully" — the PUTs are still running).
+                      const anyInFlight = creatingAllStreams || Object.values(streamStatus).some(s => s === "creating");
 
                       // For PL/Transform/Release, show which library each project belongs to
                       const projLibMap = getProjectToLibraryMap();
@@ -1187,11 +1718,23 @@ CONTENT RULES:
                                 {st.parent_stream_key && ` | Parent: ${st.parent_stream_key}`}
                                 {` | ${selectedKeys.length} projects selected`}
                               </div>
+                              {progressMsg && (
+                                <div style={{ fontSize:11, color: status === "done" ? "#065F46" : "#92400E",
+                                  marginTop:4, fontStyle: status === "creating" ? "italic" : "normal" }}>
+                                  {status === "creating" ? "⏳ " : "✓ "}{progressMsg}
+                                </div>
+                              )}
                             </div>
                             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                               <StatusBadge status={status} />
                               {status !== "done" && status !== "creating" && (
-                                <button style={smallBtnStyle(true)} onClick={() => createStream(tier.key, idx)}>Create</button>
+                                <button
+                                  style={anyInFlight ? { ...smallBtnStyle(true), opacity:0.4, cursor:"not-allowed" } : smallBtnStyle(true)}
+                                  disabled={anyInFlight}
+                                  title={anyInFlight ? "Wait for the current stream to finish" : ""}
+                                  onClick={() => createStream(tier.key, idx)}>
+                                  Create
+                                </button>
                               )}
                             </div>
                           </div>
@@ -1584,7 +2127,83 @@ CONTENT RULES:
                 <div>4. Demo merge workflow: propagate changes between streams.</div>
               </div>
 
-              <button style={{...btnStyle(false), marginTop:16}} onClick={() => { setStep(0); setStruct(null); }}>
+              {/* Cleanup panel — call after demo / before next run */}
+              <div style={{ marginTop:20, padding:"12px 14px", background:"#FEF2F2",
+                borderRadius:8, borderLeft:"3px solid #DC2626", fontSize:13, color:"var(--text-secondary)" }}>
+                <div style={{ fontWeight:500, color:"#7F1D1D", marginBottom:6 }}>
+                  Clean up this demo
+                </div>
+                <div style={{ marginBottom:8, fontSize:12 }}>
+                  Projects in category <strong>"{cleanupCategory}"</strong> can be deleted via the CB v1 API.
+                  Streams cannot be deleted (CB v3 limitation) — we'll list them so you can hide/clean them manually.
+                </div>
+
+                {!cleanupPreview && !cleanupResult && (
+                  <button
+                    style={cleanupBusy ? { ...smallBtnStyle(false), opacity:0.5, cursor:"not-allowed" } : smallBtnStyle(false)}
+                    disabled={cleanupBusy || !cleanupCategory}
+                    onClick={previewCleanup}>
+                    {cleanupBusy ? "Scanning..." : "Preview cleanup"}
+                  </button>
+                )}
+
+                {cleanupPreview && (
+                  <div>
+                    <div style={{ fontSize:12, marginBottom:6 }}>
+                      Found <strong>{cleanupPreview.projects.length}</strong> project(s) in this category
+                      {sessionPrefix && <> and <strong>{cleanupPreview.streams.length}</strong> stream(s) matching prefix <code>[{sessionPrefix}]</code></>}.
+                    </div>
+                    {cleanupPreview.projects.length > 0 && (
+                      <details style={{ fontSize:11, marginBottom:6 }}>
+                        <summary style={{ cursor:"pointer" }}>Projects ({cleanupPreview.projects.length})</summary>
+                        <div style={{ paddingLeft:12, paddingTop:4 }}>
+                          {cleanupPreview.projects.slice(0, 50).map(p =>
+                            <div key={p.id}>· {p.name} (id {p.id})</div>
+                          )}
+                          {cleanupPreview.projects.length > 50 && <div>… and {cleanupPreview.projects.length - 50} more</div>}
+                        </div>
+                      </details>
+                    )}
+                    {cleanupPreview.streams.length > 0 && (
+                      <details style={{ fontSize:11, marginBottom:8 }}>
+                        <summary style={{ cursor:"pointer" }}>Streams matching prefix ({cleanupPreview.streams.length}) — manual cleanup required</summary>
+                        <div style={{ paddingLeft:12, paddingTop:4 }}>
+                          {cleanupPreview.streams.slice(0, 50).map(s =>
+                            <div key={s.id}>· {s.name} (id {s.id})</div>
+                          )}
+                          {cleanupPreview.streams.length > 50 && <div>… and {cleanupPreview.streams.length - 50} more</div>}
+                        </div>
+                      </details>
+                    )}
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button
+                        style={cleanupBusy || cleanupPreview.projects.length === 0
+                          ? { ...smallBtnStyle(true), opacity:0.5, cursor:"not-allowed", background:"#DC2626", borderColor:"#DC2626" }
+                          : { ...smallBtnStyle(true), background:"#DC2626", borderColor:"#DC2626" }}
+                        disabled={cleanupBusy || cleanupPreview.projects.length === 0}
+                        onClick={executeCleanup}>
+                        {cleanupBusy ? "Deleting..." : `Delete ${cleanupPreview.projects.length} project(s)`}
+                      </button>
+                      <button style={smallBtnStyle(false)} disabled={cleanupBusy} onClick={() => setCleanupPreview(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {cleanupResult && (
+                  <div style={{ fontSize:12 }}>
+                    <strong>{cleanupResult.projects?.filter(p => p.deleted).length || 0}</strong> project(s) deleted
+                    {cleanupResult.projects?.some(p => !p.deleted) &&
+                      <>, <strong style={{ color:"#DC2626" }}>{cleanupResult.projects.filter(p => !p.deleted).length}</strong> failed</>}.
+                    <button style={{ ...smallBtnStyle(false), marginLeft:10 }} onClick={() => setCleanupResult(null)}>
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button style={{...btnStyle(false), marginTop:16}} onClick={() => { setStep(0); setStruct(null); streamIdsRef.current = {}; }}>
                 Start New Demo
               </button>
             </div>

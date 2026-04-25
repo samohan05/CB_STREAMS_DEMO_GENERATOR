@@ -1,5 +1,7 @@
 # Code Review: cb_demo_generator.jsx
 
+> **[SUPERSEDED — 2026-04-25]** This review targets `cb_demo_generator.jsx`, which has been moved to `archive/` and is no longer part of the active codebase. The architecture has since pivoted to a Flask + React local server (`server.py` + `cb_demo.html`), which resolved Issues #1, #2, #3, #4, and #5 by design. This document is preserved for historical context only. For the current architecture, see `README.md`.
+
 ## Summary
 
 A clever single-file React artifact that takes a domain template, calls Claude to generate a 4-tier Codebeamer stream hierarchy as JSON, then compiles it into a downloadable Python provisioning script. The architecture concept is sound and the UI is polished. However, there are **2 critical issues** (the Anthropic API call will fail as written, and credentials are embedded in plaintext), **3 high-severity correctness problems** (token limit too low, stream hierarchy not automated, traceability method questionable), and several maintainability improvements that would make this production-ready.

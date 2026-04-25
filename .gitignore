@@ -16,6 +16,13 @@ package-lock.json
 *.swp
 *.swo
 
+# Logs
+logs/
+*.log
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code local settings (per-user; agent definitions in .claude/agents/ are committed)
+.claude/settings.local.json
