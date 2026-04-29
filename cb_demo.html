@@ -801,57 +801,82 @@ CONTENT QUALITY RULES:
             return;
           }
 
-          // Step 2: Try to create project. On key conflict (403 "under creation"),
-          // retry with a unique key since CB rejects duplicate keyNames with this error.
+          // Step 2: Try to create project. CB rejects duplicates on TWO axes:
+          //   - name collision  → "Project is under creation with the same name" (lock persists across retries)
+          //   - key  collision  → "keyName already exists"
+          // We detect which axis CB is complaining about and rotate ONLY that field.
+          // The other field is preserved so user-edited values (from the UI) survive retries.
           const MAX_RETRIES = 3;
           const RETRY_DELAY = 10000;
           let pid = null;
           let currentKey = p.project_key.substring(0, 8);
+          let currentName = p.project_name;
 
           for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             const projectBody = {
-              name: p.project_name,
+              name: currentName,
               keyName: currentKey,
-              description: p.description || p.project_name,
+              description: p.description || currentName,
               category: categoryName,
             };
 
             try {
-              setProjectErrors(prev => ({ ...prev, [idx]: attempt > 0 ? `Retrying with key "${currentKey}"... (${attempt + 1}/${MAX_RETRIES + 1})` : "Creating..." }));
+              setProjectErrors(prev => ({
+                ...prev,
+                [idx]: attempt > 0
+                  ? `Retrying with name "${currentName}" / key "${currentKey}" (${attempt + 1}/${MAX_RETRIES + 1})`
+                  : "Creating..."
+              }));
               const result = await cbPostV1("project", projectBody);
               pid = result?.id || (result?.uri ? parseInt(result.uri.split("/").pop()) : null);
-              if (pid) break;
+              if (pid) {
+                // Persist the actually-used name/key back to the struct so the rest of
+                // the wizard (req creation, summary) shows what's in CB, not what the AI proposed.
+                if (currentName !== p.project_name || currentKey !== p.project_key) {
+                  updateStruct(s => {
+                    s.projects[idx].project_name = currentName;
+                    s.projects[idx].project_key = currentKey;
+                  });
+                }
+                break;
+              }
             } catch(e) {
-              const isConflict = e.message && (
-                e.message.includes("under creation") ||
-                e.message.includes("already exists") ||
-                e.message.includes("409")
-              );
-              if (!isConflict) throw e;
+              const msg = (e.message || "").toLowerCase();
+              const isNameConflict = msg.includes("same name") || msg.includes("name already") || msg.includes("under creation");
+              const isKeyConflict  = msg.includes("keyname") || msg.includes("key already") || msg.includes("same key");
+              const isGeneric409   = msg.includes("already exists") || msg.includes("409");
+              if (!isNameConflict && !isKeyConflict && !isGeneric409) throw e;
 
-              console.log(`Project "${p.project_name}" key "${currentKey}" — conflict (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${e.message}`);
+              console.log(`Project "${currentName}" key "${currentKey}" — CB conflict (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${e.message}`);
 
-              // Check if CB actually created it despite the error
+              // CB might have actually created it despite the 4xx — check before retrying
               await new Promise(r => setTimeout(r, 5000));
-              const foundPid = await findProjectInCB(p.project_name);
+              const foundPid = await findProjectInCB(currentName);
               if (foundPid) {
-                console.log(`Project "${p.project_name}" found in CB after conflict (ID: ${foundPid})`);
+                console.log(`Project "${currentName}" found in CB after conflict (ID: ${foundPid})`);
                 pid = foundPid;
                 break;
               }
 
               if (attempt < MAX_RETRIES) {
-                // Generate a new unique key and retry
+                // Rotate the field that CB complained about. If CB only said "under
+                // creation" without distinguishing, treat as name conflict (most common).
                 const suffix = Date.now().toString(36).slice(-3).toUpperCase();
-                currentKey = (p.project_key.substring(0, 5) + suffix).substring(0, 8);
-                console.log(`Retrying with new key: "${currentKey}"`);
+                if (isKeyConflict && !isNameConflict) {
+                  currentKey = (p.project_key.substring(0, 5) + suffix).substring(0, 8);
+                  console.log(`Rotating key to "${currentKey}"`);
+                } else {
+                  // Name conflict (or generic) — append a numeric suffix (n) to the name
+                  currentName = `${p.project_name} (${attempt + 2})`;
+                  console.log(`Rotating name to "${currentName}"`);
+                }
                 setProjectErrors(prev => ({
                   ...prev,
-                  [idx]: `Key conflict — retrying with key "${currentKey}" in ${RETRY_DELAY/1000}s...`
+                  [idx]: `CB rejected: "${e.message.slice(0, 80)}". Retrying as "${currentName}" / "${currentKey}" in ${RETRY_DELAY/1000}s...`
                 }));
                 await new Promise(r => setTimeout(r, RETRY_DELAY));
               } else {
-                throw new Error(`Key conflict after ${MAX_RETRIES + 1} attempts. Delete old projects in CB or use a different domain.`);
+                throw new Error(`CB rejected ${MAX_RETRIES + 1} attempts. Last error: ${e.message}`);
               }
             }
           }
