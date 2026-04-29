@@ -337,15 +337,20 @@ def cleanup_projects():
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     verify = CB_VERIFY()
 
-    # 1. List projects in the category
+    # 1. Fetch ALL projects, then filter case-insensitively in Python.
+    #    The CB v1 endpoint with ?category= is case-sensitive on string match,
+    #    which previously caused empty results when the wizard's domain string
+    #    drifted from CB's actual category casing (e.g. "TVS Motor Bikes" vs
+    #    CB's "TVS Motor bikes"). Pulling everything and matching here is more
+    #    forgiving and the project count is small enough that latency is fine.
     list_url = f"{base}/cb/rest/projects/page/1"
     try:
-        log_request("CB-V1", "GET", f"{list_url}?pagesize=500&category={category}")
+        log_request("CB-V1", "GET", f"{list_url}?pagesize=500")
         r = requests.get(
             list_url,
             auth=auth,
             headers=headers,
-            params={"pagesize": 500, "category": category},
+            params={"pagesize": 500},
             timeout=30,
             verify=verify,
         )
@@ -359,7 +364,11 @@ def cleanup_projects():
     raw_projects = listing.get("projects") if isinstance(listing, dict) else listing
     raw_projects = raw_projects or []
     targets = []
+    cat_lower = category.lower()
     for p in raw_projects:
+        proj_cat = (p.get("category") or "").strip().lower()
+        if proj_cat != cat_lower:
+            continue
         pid = p.get("id")
         if not pid and p.get("uri"):
             try:
@@ -369,7 +378,7 @@ def cleanup_projects():
         if pid:
             targets.append({"id": pid, "name": p.get("name", "")})
 
-    logger.info(f"CLEANUP category='{category}' found {len(targets)} project(s), dry_run={dry_run}")
+    logger.info(f"CLEANUP category='{category}' (case-insensitive) found {len(targets)} project(s) of {len(raw_projects)} scanned, dry_run={dry_run}")
 
     # 2. Dry-run — return the list and stop
     if dry_run:
