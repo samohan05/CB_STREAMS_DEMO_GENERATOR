@@ -2161,6 +2161,44 @@ CONTENT QUALITY RULES:
             const toggleOpen = (key) => setSummaryExpanded(prev => ({ ...prev, [key]: !prev[key] }));
             const tierByKey = TIERS.reduce((acc,t)=>{ acc[t.key]=t; return acc; }, {});
 
+            // ─── CB deep-link helpers ─────────────────────────────────
+            // Strip trailing slashes so we don't produce "//cb/..." URLs.
+            const cbBase = (cbUrl || "").replace(/\/+$/, "");
+            const cbProjectUrl = (key) => key && cbBase ? `${cbBase}/cb/project/${encodeURIComponent(key)}` : null;
+            const cbIssueUrl   = (id)  => id  && cbBase ? `${cbBase}/cb/issue/${id}` : null;
+            const cbStreamUrl  = (id)  => id  && cbBase ? `${cbBase}/cb/streams/projectList.spr?streamId=${id}` : null;
+
+            // Trailing icon link — opens in new tab, swallows row-click so the
+            // expand/collapse caret on the parent row doesn't fire.
+            const ExtLink = ({ href, title }) => href ? (
+              <a href={href} target="_blank" rel="noopener noreferrer" title={title}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  fontSize: 12, color: "var(--text-tertiary)", textDecoration: "none",
+                  padding: "0 4px", lineHeight: 1, cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-tertiary)"; }}>
+                ↗
+              </a>
+            ) : null;
+
+            // Inline ID anchor — same color as the existing "id N" text, underline-on-hover.
+            const IdLink = ({ href, label }) => href ? (
+              <a href={href} target="_blank" rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  color: "var(--text-tertiary)", fontFamily: "monospace", fontSize: 11,
+                  textDecoration: "none", cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}>
+                {label}
+              </a>
+            ) : (
+              <span style={{ color: "var(--text-tertiary)", fontFamily: "monospace", fontSize: 11 }}>{label}</span>
+            );
+
             // Build a stream-key → stream_name lookup for "source: <name>" display
             const streamNameByKey = {};
             for (const t of TIERS) for (const s of (struct[t.key]||[])) streamNameByKey[s.stream_key] = s.stream_name;
@@ -2256,12 +2294,17 @@ CONTENT QUALITY RULES:
                         style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
                         <span style={{ fontSize:9, color:"var(--text-secondary)", width:10 }}>{open ? "▼" : "▶"}</span>
                         <span style={{ width:8, height:8, borderRadius:"50%", background:tier.clr, flexShrink:0 }}></span>
-                        <span style={{ fontSize:13, fontWeight:500, flex:1 }}>{p.project_name}</span>
+                        <span style={{ fontSize:13, fontWeight:500, display:"flex", alignItems:"center", flex:1 }}>
+                          {p.project_name}
+                          <ExtLink href={cbProjectUrl(p.project_key)} title={`Open project ${p.project_key} in Codebeamer`} />
+                        </span>
                         <span style={{ fontSize:10, fontWeight:500, color:tier.clr, padding:"2px 8px", borderRadius:4, background:tier.bg }}>
                           {cat === "product_line" ? "product line" : cat}
                         </span>
-                        <span style={{ fontSize:11, fontWeight:500, color:"var(--text-tertiary)", fontFamily:"monospace", minWidth:80, textAlign:"right" }}>
-                          {projectIds[i] ? `id ${projectIds[i]}` : "—"}
+                        <span style={{ fontSize:11, fontWeight:500, fontFamily:"monospace", minWidth:80, textAlign:"right" }}>
+                          {projectIds[i]
+                            ? <IdLink href={cbProjectUrl(p.project_key)} label={`id ${projectIds[i]}`} />
+                            : <span style={{ color:"var(--text-tertiary)" }}>—</span>}
                         </span>
                       </div>
 
@@ -2281,7 +2324,7 @@ CONTENT QUALITY RULES:
                               {arts.reqs.map((r, ri) => (
                                 <div key={ri} style={{ display:"flex", alignItems:"center", gap:8, padding:"3px 0", fontSize:12 }}>
                                   <span style={{ flex:1 }}>{r.title}</span>
-                                  <span style={{ color:"var(--text-tertiary)", fontFamily:"monospace", fontSize:11 }}>id {r.id}</span>
+                                  <IdLink href={cbIssueUrl(r.id)} label={`id ${r.id}`} />
                                 </div>
                               ))}
                             </div>
@@ -2294,9 +2337,22 @@ CONTENT QUALITY RULES:
                               {arts.tcs.map((t, ti) => (
                                 <div key={ti} style={{ display:"flex", alignItems:"center", gap:8, padding:"3px 0", fontSize:12 }}>
                                   <span>{t.title}</span>
-                                  <span style={{ color:"var(--text-tertiary)", fontSize:11 }}>verifies {t.verifies.join(", ")}</span>
+                                  <span style={{ color:"var(--text-tertiary)", fontSize:11 }}>
+                                    verifies {t.verifies.map((rid, vi) => (
+                                      <React.Fragment key={vi}>
+                                        {vi > 0 && ", "}
+                                        <a href={cbIssueUrl(rid)} target="_blank" rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          style={{ color:"var(--text-tertiary)", textDecoration:"none", cursor:"pointer" }}
+                                          onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                                          onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}>
+                                          {rid}
+                                        </a>
+                                      </React.Fragment>
+                                    ))}
+                                  </span>
                                   <span style={{ flex:1 }}></span>
-                                  <span style={{ color:"var(--text-tertiary)", fontFamily:"monospace", fontSize:11 }}>id {t.id}</span>
+                                  <IdLink href={cbIssueUrl(t.id)} label={`id ${t.id}`} />
                                 </div>
                               ))}
                             </div>
@@ -2353,12 +2409,15 @@ CONTENT QUALITY RULES:
                             <div onClick={() => toggleOpen(skey)}
                               style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
                               <span style={{ fontSize:9, color:"var(--text-secondary)", width:10 }}>{open ? "▼" : "▶"}</span>
-                              <span style={{ fontSize:13, fontWeight:500, flex:1 }}>
+                              <span style={{ fontSize:13, fontWeight:500, flex:1, display:"flex", alignItems:"center" }}>
                                 {sessionPrefix && <span style={{ color:"var(--text-tertiary)", fontWeight:400 }}>[{sessionPrefix}] </span>}
                                 {st.stream_name}
+                                <ExtLink href={cbStreamUrl(sid)} title={`Open projects in stream ${sid} in Codebeamer`} />
                               </span>
-                              <span style={{ fontSize:11, fontWeight:500, color:"var(--text-tertiary)", fontFamily:"monospace", minWidth:80, textAlign:"right" }}>
-                                {sid ? `id ${sid}` : "—"}
+                              <span style={{ fontSize:11, fontWeight:500, fontFamily:"monospace", minWidth:80, textAlign:"right" }}>
+                                {sid
+                                  ? <IdLink href={cbStreamUrl(sid)} label={`id ${sid}`} />
+                                  : <span style={{ color:"var(--text-tertiary)" }}>—</span>}
                               </span>
                             </div>
                             <div style={{ fontSize:11, color:"var(--text-secondary)", marginTop:4, paddingLeft:22 }}>
@@ -2371,7 +2430,10 @@ CONTENT QUALITY RULES:
                                     const p = struct.projects?.find(pr => pr.project_key === pk);
                                     return (
                                       <div key={pk} style={{ display:"flex", alignItems:"center", gap:8, padding:"3px 0", fontSize:12 }}>
-                                        <span style={{ flex:1 }}>{p?.project_name || pk}</span>
+                                        <span style={{ flex:1, display:"flex", alignItems:"center" }}>
+                                          {p?.project_name || pk}
+                                          <ExtLink href={cbProjectUrl(pk)} title={`Open project ${pk} in Codebeamer`} />
+                                        </span>
                                         <span style={{ color:"var(--text-tertiary)", fontSize:11 }}>
                                           source: {sourceLabelForProject(tier.key, st, pk)}
                                         </span>
