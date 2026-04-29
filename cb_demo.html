@@ -363,7 +363,7 @@ CRITICAL FORMAT RULES:
 - All string values max 120 chars. No real newlines inside strings. Use \\n only in steps fields.
 - project_key max 8 alphanumeric/underscore chars. No spaces. No hyphens.
 - No apostrophes in any string value.
-- Make EVERY project_key (library, pl_projects, release_projects) an intuitive abbreviation of THAT project's own name (e.g. "FLTCTRL" for Flight Control, "BMSAFE" for Battery Safety). Never use generic numbered placeholders like "PLPRJ1", "PLINT1", "RELPRJ2". All project_key values across the entire response must be unique.
+- Make project_key values intuitive abbreviations of the project name (e.g. "FLTCTRL" not "PRJ001").
 
 Return this exact JSON structure:
 {
@@ -392,7 +392,7 @@ Return this exact JSON structure:
   ],
   "pl_projects": [
     {
-      "project_key": "PLNAME8",
+      "project_key": "PLPRJ1",
       "project_name": "Platform Integration Project Name",
       "description": "Cross-subsystem integration project for this product family",
       "stream_key": "PL_XXX",
@@ -414,7 +414,7 @@ Return this exact JSON structure:
   ],
   "release_projects": [
     {
-      "project_key": "RELNAME8",
+      "project_key": "RELPRJ1",
       "project_name": "Product Model Certification/Validation Project",
       "description": "Release validation and compliance for this specific product",
       "stream_key": "REL_XXX",
@@ -562,54 +562,6 @@ CONTENT QUALITY RULES:
           if (parsed.release_projects?.length) {
             parsed.release_projects.forEach(p => { p.category = "release"; });
             parsed.projects = [...parsed.projects, ...parsed.release_projects];
-          }
-
-          // Defensive uniqueifier — only rewrite keys that are problematic.
-          // Two failure modes the AI exhibits:
-          //   1. Generic placeholder keys (PLPRJ1, RELPRJ2, PLINT1, RELN3) — the
-          //      prompt's exemplar JSON shows these as literal values and the
-          //      model copies them, colliding instance-wide on shared sandboxes.
-          //   2. Within-run duplicates (rare but possible).
-          // Pure-good keys (FLTCOMP, BMSAFE, etc.) pass through untouched so the
-          // demo UI shows the AI's intuitive abbreviation, not a stamped opaque code.
-          {
-            const placeholderRe = /^(PLPRJ|RELPRJ|PLINT|RELN|PRJ)\d+$/i;
-            const sessionStamp = (sessionPrefix || "").replace(/[^A-Za-z0-9]/g, "").slice(-3).toUpperCase() || "X";
-            const abbreviate = (name) => {
-              const cleaned = (name || "PROJ").toUpperCase().replace(/[^A-Z0-9]+/g, "");
-              return cleaned.slice(0, 5) || "PROJ";
-            };
-            const seen = new Set();
-            const keyRemap = {};
-            for (const p of parsed.projects) {
-              const original = (p.project_key || "").toUpperCase();
-              const isPlaceholder = !original || placeholderRe.test(original);
-              const isDup = seen.has(original);
-              let candidate = original;
-              if (isPlaceholder || isDup) {
-                // Build a fresh key from the name + session stamp
-                const base = abbreviate(p.project_name);
-                candidate = (base + sessionStamp).slice(0, 8);
-                // Resolve any further within-run collisions
-                let ix = 1;
-                while (seen.has(candidate)) {
-                  const suffix = sessionStamp + String.fromCharCode(64 + (++ix));
-                  candidate = (base.slice(0, 8 - suffix.length) + suffix).slice(0, 8);
-                }
-              }
-              seen.add(candidate);
-              if (candidate !== original) {
-                keyRemap[original] = candidate;
-                console.log(`Remapped project_key "${original}" → "${candidate}" (${p.project_name})`);
-              }
-              p.project_key = candidate;
-            }
-            // Propagate remapped keys into stream.project_keys arrays
-            for (const tier of ["library_streams", "product_line_streams", "transform_streams", "release_streams"]) {
-              for (const st of (parsed[tier] || [])) {
-                st.project_keys = (st.project_keys || []).map(k => keyRemap[k.toUpperCase()] || k);
-              }
-            }
           }
 
           // Auto-add PL projects to their PL stream's project_keys
@@ -907,14 +859,17 @@ CONTENT QUALITY RULES:
               }
 
               if (attempt < MAX_RETRIES) {
-                // CB's error text says "with the same name" but the actual uniqueness
-                // lock is on keyName (verified by repeated 403s when only the name was
-                // rotated). Rotate BOTH name and key on every conflict so we sidestep
-                // whichever axis CB is actually locking on.
+                // Rotate the field that CB complained about. If CB only said "under
+                // creation" without distinguishing, treat as name conflict (most common).
                 const suffix = Date.now().toString(36).slice(-3).toUpperCase();
-                currentName = `${p.project_name} (${attempt + 2})`;
-                currentKey = (p.project_key.substring(0, 5) + suffix).substring(0, 8);
-                console.log(`Rotating to name "${currentName}" / key "${currentKey}"`);
+                if (isKeyConflict && !isNameConflict) {
+                  currentKey = (p.project_key.substring(0, 5) + suffix).substring(0, 8);
+                  console.log(`Rotating key to "${currentKey}"`);
+                } else {
+                  // Name conflict (or generic) — append a numeric suffix (n) to the name
+                  currentName = `${p.project_name} (${attempt + 2})`;
+                  console.log(`Rotating name to "${currentName}"`);
+                }
                 setProjectErrors(prev => ({
                   ...prev,
                   [idx]: `CB rejected: "${e.message.slice(0, 80)}". Retrying as "${currentName}" / "${currentKey}" in ${RETRY_DELAY/1000}s...`
@@ -1303,53 +1258,11 @@ CONTENT QUALITY RULES:
             console.log(`[${st.stream_key}] added ${addedCount} own-tier project(s), inherited ${skippedInherited} via sourceStreamId`);
           }
 
-          // ── Verification poll ────────────────────────────────────────
-          // CB's project-membership propagation (especially Transform/Release
-          // streams that inherit from sourceStreamId) is asynchronous on its
-          // backend. Without waiting, the "next stream" can start before the
-          // current one has finished materializing — and the consultant
-          // opening the projectList URL sees an empty stream until cache catches up.
-          //
-          // Poll GET /streams/{id}/projects until count >= expected, with a
-          // generous timeout. On timeout, warn the consultant but proceed
-          // (CB usually completes propagation a few seconds later anyway).
-          const expectedCount = (st.project_keys?.length || 0);
-          let verifiedCount = 0;
-          let verifyTimedOut = false;
-          if (expectedCount > 0) {
-            const deadline = Date.now() + 30000; // 30s ceiling
-            let pollInterval = 1500;
-            while (Date.now() < deadline) {
-              setStreamProgress(prev => ({
-                ...prev,
-                [sKey]: `Stream created (id ${sid}) — confirming projects in CB (${verifiedCount} of ${expectedCount})…`,
-              }));
-              try {
-                const resp = await cbGet(`streams/${sid}/projects`);
-                const list = Array.isArray(resp) ? resp : (resp?.projects || resp?.content || []);
-                verifiedCount = Array.isArray(list) ? list.length : 0;
-                if (verifiedCount >= expectedCount) break;
-              } catch (e) {
-                // GET 4xx/5xx is a real fault — surface and stop polling.
-                console.warn(`[${st.stream_key}] verify GET failed:`, e.message);
-                throw new Error(`Verification fetch failed: ${e.message}`);
-              }
-              await new Promise(r => setTimeout(r, pollInterval));
-              pollInterval = Math.min(pollInterval + 500, 4000); // gentle backoff
-            }
-            if (verifiedCount < expectedCount) verifyTimedOut = true;
-          }
-
-          // Final summary — replaces the in-flight progress with a static line.
+          // Final summary — replaces the in-flight progress with a static success line.
           const summaryParts = [`Stream id ${sid}`];
           if (addedCount > 0) summaryParts.push(`${addedCount} project(s) added`);
           if (failedCount > 0) summaryParts.push(`${failedCount} failed`);
           if (skippedInherited > 0 && workList.length === 0) summaryParts.push(`${skippedInherited} inherited from parent`);
-          if (verifyTimedOut) {
-            summaryParts.push(`⚠ ${verifiedCount} of ${expectedCount} visible after 30s — verify in CB UI`);
-          } else if (expectedCount > 0) {
-            summaryParts.push(`confirmed ${verifiedCount} project(s) in CB`);
-          }
           setStreamProgress(prev => ({ ...prev, [sKey]: summaryParts.join(" · ") }));
           setStreamStatus(prev => ({ ...prev, [sKey]: "done" }));
         } catch(e) {
@@ -1849,19 +1762,12 @@ CONTENT QUALITY RULES:
                                 {st.parent_stream_key && ` | Parent: ${st.parent_stream_key}`}
                                 {` | ${selectedKeys.length} projects selected`}
                               </div>
-                              {progressMsg && (() => {
-                                // Amber tint when CB timed out on the verify poll —
-                                // tells the consultant to manually re-check in CB.
-                                const isWarn = progressMsg.includes("⚠");
-                                const color = isWarn ? "#92400E" : (status === "done" ? "#065F46" : "#92400E");
-                                const prefix = isWarn ? "" : (status === "creating" ? "⏳ " : "✓ ");
-                                return (
-                                  <div style={{ fontSize:11, color,
-                                    marginTop:4, fontStyle: status === "creating" ? "italic" : "normal" }}>
-                                    {prefix}{progressMsg}
-                                  </div>
-                                );
-                              })()}
+                              {progressMsg && (
+                                <div style={{ fontSize:11, color: status === "done" ? "#065F46" : "#92400E",
+                                  marginTop:4, fontStyle: status === "creating" ? "italic" : "normal" }}>
+                                  {status === "creating" ? "⏳ " : "✓ "}{progressMsg}
+                                </div>
+                              )}
                             </div>
                             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                               <StatusBadge status={status} />
