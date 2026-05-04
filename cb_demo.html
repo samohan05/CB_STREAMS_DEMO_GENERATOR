@@ -441,7 +441,7 @@ Return this exact JSON structure:
     { "stream_key": "PL_XXX", "stream_name": "Product Platform or Market Category", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": null }
   ],
   "transform_streams": [
-    { "stream_key": "TR_XXX", "stream_name": "Transform for Product Platform", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "PL_XXX" }
+    { "stream_key": "TR_XXX", "stream_name": "Transform for <Release Product Name>", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "PL_XXX", "release_stream_key": "REL_XXX" }
   ],
   "release_streams": [
     { "stream_key": "REL_XXX", "stream_name": "Fictional Product Model Name with Version", "description": "max 80 chars", "project_keys": ["all 6 library keys"], "parent_stream_key": "TR_XXX" }
@@ -457,8 +457,12 @@ STRICT QUANTITIES:
 - Each release_project: exactly 5 requirements, each with 1 test case
 - library_streams: exactly 3 (one per subsystem domain, each references its 2 library projects)
 - product_line_streams: exactly 2 (each references ALL 6 library project keys only)
-- transform_streams: exactly 2 (each references ALL 6 library project keys only, parent = a PL stream)
-- release_streams: exactly 3 (each references ALL 6 library project keys only, parent = a Transform stream)
+- transform_streams: exactly 1 PER RELEASE PRODUCT (so 3 total — one per release_stream). Each Transform represents the parameter-substitution staging area for ONE specific release product:
+    - stream_name MUST be "Transform for <release_stream.stream_name>" (e.g. "Transform for Panorama Forte 3.0T")
+    - parent_stream_key = the PL stream key the corresponding release belongs to (the Transform branches off the PL)
+    - release_stream_key = the release_stream this Transform feeds into (1:1)
+    - project_keys = ALL 6 library project keys only (full mirror of the parent PL)
+- release_streams: exactly 3 (each references ALL 6 library project keys only, parent_stream_key = the dedicated Transform stream for THIS release)
 
 CONTENT QUALITY RULES:
 - Use real industry standards: IEC 60601/62304 for medical, ISO 26262 for automotive, DO-178C/DO-254 for avionics, IEC 61508 for industrial
@@ -580,14 +584,62 @@ CONTENT QUALITY RULES:
             }
           }
 
-          // Initialize Transform streams to mirror PL library selections
-          // and Release streams to mirror Transform + their release projects
+          // ── Per-product Transform model ─────────────────────────────
+          // Each release product gets its OWN Transform (1:1), branched from
+          // the PL the release belongs to. Transform name = "Transform for
+          // <release product name>". Defensive normalization here so that
+          // even if the AI emits the older PL-aligned shape (1 Transform per
+          // PL), we synthesize per-release Transforms before stream creation.
           const libKeys = parsed.projects.filter(p => p.category === "library").map(p => p.project_key);
-          for (const tr of (parsed.transform_streams || [])) {
-            tr.project_keys = [...libKeys];
+          const releaseStreams = parsed.release_streams || [];
+
+          // Build a lookup: release.stream_key → its current parent_stream_key (which the AI
+          // may have set to either an old shared TR_ key or directly to a PL — we ignore both).
+          // The release's TRUE parent PL is determined via the release_project's stream_key
+          // matching a release_stream, which inherited it from the user's choice on Step 0
+          // OR from the AI's pl_projects mapping. As a robust fallback we use the
+          // release_stream's own pre-existing parent if it points to a known PL or Transform.
+          const plKeys = new Set((parsed.product_line_streams || []).map(s => s.stream_key));
+
+          // Resolve each release's PL parent. Strategy:
+          //   1. If release.parent_stream_key already points to a PL, use that.
+          //   2. Else if it points to an existing Transform whose parent is a PL, use that PL.
+          //   3. Else fall back to the first PL.
+          const oldTransforms = parsed.transform_streams || [];
+          const oldTransformByKey = {};
+          for (const t of oldTransforms) oldTransformByKey[t.stream_key] = t;
+
+          const resolveReleasePlKey = (rel) => {
+            const pk = rel.parent_stream_key;
+            if (pk && plKeys.has(pk)) return pk;
+            const oldTr = pk ? oldTransformByKey[pk] : null;
+            if (oldTr && plKeys.has(oldTr.parent_stream_key)) return oldTr.parent_stream_key;
+            return (parsed.product_line_streams || [])[0]?.stream_key || null;
+          };
+
+          // Synthesize one Transform per release. Replaces parsed.transform_streams entirely.
+          const newTransforms = releaseStreams.map((rel, idx) => {
+            const plKey = resolveReleasePlKey(rel);
+            const trKey = `TR_${(rel.stream_key || `REL${idx}`).replace(/^REL_?/, "")}`;
+            return {
+              stream_key: trKey,
+              stream_name: `Transform for ${rel.stream_name}`,
+              description: `Parameter-substitution staging area for ${rel.stream_name}`,
+              project_keys: [...libKeys],          // full mirror of parent PL's library projects
+              parent_stream_key: plKey,            // branches off the PL
+              release_stream_key: rel.stream_key,  // 1:1 link to the release it feeds
+            };
+          });
+          parsed.transform_streams = newTransforms;
+
+          // Re-wire each release to point at its dedicated Transform.
+          for (let i = 0; i < releaseStreams.length; i++) {
+            releaseStreams[i].parent_stream_key = newTransforms[i].stream_key;
           }
-          for (const rel of (parsed.release_streams || [])) {
-            const relProjKeys = rel.project_keys.filter(k =>
+
+          // Compute release.project_keys = library mirror + the release's own release-projects
+          for (const rel of releaseStreams) {
+            const relProjKeys = (rel.project_keys || []).filter(k =>
               parsed.projects.some(p => p.project_key === k && p.category === "release")
             );
             rel.project_keys = [...libKeys, ...relProjKeys];
@@ -1846,12 +1898,14 @@ CONTENT QUALITY RULES:
                                                     }
                                                   }
                                                   s.product_line_streams[idx].project_keys = keys;
-                                                  // Mirror PL to Transform (library keys only)
-                                                  for (let ti = 0; ti < (s.transform_streams || []).length; ti++) {
-                                                    s.transform_streams[ti].project_keys = [...keys];
-                                                  }
-                                                  // Mirror PL+Transform to Release (library keys only)
+                                                  const editedPlKey = s.product_line_streams[idx].stream_key;
+                                                  // Mirror PL → ONLY the Transforms branched from THIS PL
+                                                  const trsForThisPl = (s.transform_streams || []).filter(t => t.parent_stream_key === editedPlKey);
+                                                  for (const tr of trsForThisPl) tr.project_keys = [...keys];
+                                                  // Mirror PL → ONLY the Releases whose Transform is branched from THIS PL
+                                                  const trKeysForThisPl = new Set(trsForThisPl.map(t => t.stream_key));
                                                   for (let ri = 0; ri < (s.release_streams || []).length; ri++) {
+                                                    if (!trKeysForThisPl.has(s.release_streams[ri].parent_stream_key)) continue;
                                                     const relExtras = (s.release_streams[ri].project_keys || []).filter(k =>
                                                       allProjects.some(p => p.project_key === k && p.category === "release")
                                                     );
@@ -1884,10 +1938,14 @@ CONTENT QUALITY RULES:
                                                           keys = keys.filter(k => k !== p.project_key);
                                                         }
                                                         s.product_line_streams[idx].project_keys = keys;
-                                                        for (let ti = 0; ti < (s.transform_streams || []).length; ti++) {
-                                                          s.transform_streams[ti].project_keys = [...keys];
-                                                        }
+                                                        const editedPlKey = s.product_line_streams[idx].stream_key;
+                                                        // Mirror PL → ONLY the Transforms branched from THIS PL
+                                                        const trsForThisPl = (s.transform_streams || []).filter(t => t.parent_stream_key === editedPlKey);
+                                                        for (const tr of trsForThisPl) tr.project_keys = [...keys];
+                                                        // Mirror PL → ONLY the Releases whose Transform is branched from THIS PL
+                                                        const trKeysForThisPl = new Set(trsForThisPl.map(t => t.stream_key));
                                                         for (let ri = 0; ri < (s.release_streams || []).length; ri++) {
+                                                          if (!trKeysForThisPl.has(s.release_streams[ri].parent_stream_key)) continue;
                                                           const relExtras = (s.release_streams[ri].project_keys || []).filter(k =>
                                                             allProjects.some(p2 => p2.project_key === k && p2.category === "release")
                                                           );
