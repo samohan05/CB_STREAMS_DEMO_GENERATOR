@@ -376,15 +376,63 @@ Return this exact JSON structure:
       "subsystem": "Which of the 3 subsystem domains this belongs to",
       "requirements": [
         {
-          "title": "The [specific component] shall [verb] [measurable value+unit] per [real standard]",
+          "title": "The [specific component] shall [verb 1] [measurable value+unit] per [real standard]",
           "description": "One sentence technical context max 100 chars.",
           "priority": "High",
           "level": "System",
           "test_cases": [{
-            "title": "Verify [specific measurable aspect] under [realistic condition]",
+            "title": "Verify [specific aspect 1] under [realistic condition]",
             "description": "Test objective max 80 chars.",
             "steps": "1. Setup per standard\\n2. Apply stimulus\\n3. Measure with instrument",
             "expected_result": "Specific measurable criterion with unit and tolerance"
+          }]
+        },
+        {
+          "title": "The [specific component] shall [verb 2] [different measurable value+unit] per [real standard]",
+          "description": "Different aspect of the same component, max 100 chars.",
+          "priority": "High",
+          "level": "System",
+          "test_cases": [{
+            "title": "Verify [specific aspect 2] under [different condition]",
+            "description": "Test objective max 80 chars.",
+            "steps": "1. Setup\\n2. Stimulus\\n3. Measure",
+            "expected_result": "Different measurable criterion with unit and tolerance"
+          }]
+        },
+        {
+          "title": "The [specific component] shall [verb 3] [third measurable value+unit] per [real standard]",
+          "description": "Third aspect, max 100 chars.",
+          "priority": "High",
+          "level": "System",
+          "test_cases": [{
+            "title": "Verify [specific aspect 3] under [third condition]",
+            "description": "Test objective max 80 chars.",
+            "steps": "1. Setup\\n2. Stimulus\\n3. Measure",
+            "expected_result": "Third measurable criterion"
+          }]
+        },
+        {
+          "title": "The [specific component] shall [verb 4] [fourth measurable value+unit] per [real standard]",
+          "description": "Fourth aspect, max 100 chars.",
+          "priority": "High",
+          "level": "System",
+          "test_cases": [{
+            "title": "Verify [specific aspect 4] under [fourth condition]",
+            "description": "Test objective max 80 chars.",
+            "steps": "1. Setup\\n2. Stimulus\\n3. Measure",
+            "expected_result": "Fourth measurable criterion"
+          }]
+        },
+        {
+          "title": "The [specific component] shall [verb 5] [fifth measurable value+unit] per [real standard]",
+          "description": "Fifth aspect, max 100 chars.",
+          "priority": "High",
+          "level": "System",
+          "test_cases": [{
+            "title": "Verify [specific aspect 5] under [fifth condition]",
+            "description": "Test objective max 80 chars.",
+            "steps": "1. Setup\\n2. Stimulus\\n3. Measure",
+            "expected_result": "Fifth measurable criterion"
           }]
         }
       ]
@@ -568,6 +616,47 @@ CONTENT QUALITY RULES:
             parsed.projects = [...parsed.projects, ...parsed.release_projects];
           }
 
+          // ── Defensive requirement-count validator ────────────────────
+          // The AI sometimes returns 1 requirement per project even though
+          // STRICT QUANTITIES says 5 — it follows the exemplar shape. Pad
+          // missing requirements by repeating the AI's content with a
+          // small distinguishing suffix so the demo always has at least 5.
+          for (const p of parsed.projects) {
+            const reqs = p.requirements || (p.requirements = []);
+            if (reqs.length === 0) {
+              console.warn(`Project "${p.project_name}" has 0 requirements from AI — synthesizing 5 generic placeholders.`);
+              const baseTitle = `The ${p.project_name} shall meet its functional requirement`;
+              for (let r = 1; r <= 5; r++) {
+                reqs.push({
+                  title: `${baseTitle} #${r}`,
+                  description: `Synthesized requirement ${r} (AI returned none).`,
+                  priority: "High", level: "System",
+                  test_cases: [{
+                    title: `Verify ${p.project_name} requirement ${r}`,
+                    description: "Synthesized test case.",
+                    steps: "1. Setup\n2. Stimulus\n3. Measure",
+                    expected_result: "Pass per requirement.",
+                  }],
+                });
+              }
+            } else if (reqs.length < 5) {
+              console.warn(`Project "${p.project_name}" has ${reqs.length} requirement(s) from AI — padding to 5 by duplicating.`);
+              const seed = reqs[0];
+              while (reqs.length < 5) {
+                const idx = reqs.length + 1;
+                reqs.push({
+                  ...seed,
+                  title: `${seed.title} (variant ${idx})`,
+                  description: seed.description,
+                  test_cases: [{
+                    ...(seed.test_cases?.[0] || { steps: "1. Setup\n2. Stimulus\n3. Measure", expected_result: "Pass" }),
+                    title: `${(seed.test_cases?.[0]?.title) || "Verify"} (variant ${idx})`,
+                  }],
+                });
+              }
+            }
+          }
+
           // ── Defensive project_key uniqueifier ────────────────────────
           // Even with prompt instructions, the AI sometimes copies generic
           // placeholder keys (PLPRJ1, RELPRJ2, PLINT1, RELN3) from the
@@ -587,9 +676,20 @@ CONTENT QUALITY RULES:
             const keyRemap = {};
             for (const p of parsed.projects) {
               const original = (p.project_key || "").toUpperCase();
-              const isPlaceholder = !original || placeholderRe.test(original);
-              const isDup = seen.has(original);
               let candidate = original;
+
+              // CB's keyName max is 8 chars. The project-create flow used to do
+              // a silent .substring(0, 8) at POST time and write the truncated
+              // value back to struct.projects[i].project_key — but the stream
+              // membership arrays still held the 9+ char original, so the
+              // findIndex() lookup later in createStream returned -1 and the
+              // project was silently dropped from the stream. Truncate here at
+              // parse time and propagate via keyRemap so EVERY reference stays
+              // consistent.
+              if (candidate.length > 8) candidate = candidate.slice(0, 8);
+
+              const isPlaceholder = !original || placeholderRe.test(original);
+              const isDup = seen.has(candidate);
               if (isPlaceholder || isDup) {
                 const base = abbreviate(p.project_name);
                 candidate = (base + sessionStamp).slice(0, 8);
