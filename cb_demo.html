@@ -241,8 +241,21 @@
       const [cleanupPreview, setCleanupPreview] = useState(null); // {projects:[], streams:[]}
       const [cleanupResult, setCleanupResult] = useState(null);   // post-delete summary
 
-      // Read CB category name from generated struct (used for project cleanup scope)
-      const cleanupCategory = struct?.domain_name || "";
+      // CB silently sanitizes special chars in category names (e.g.
+      // "ADAS/AD" → "ADAS-AD"). After ensureCategoryExists, this ref
+      // holds CB's canonical name. Cleanup, project POSTs, and listing
+      // queries all read from here so they match what CB actually stored.
+      const cbCategoryNameRef = useRef(null);
+
+      // Cleanup category — prefer CB's canonical name, fall back to wizard's
+      // domain (template's product.domain or customDomain), then to AI's
+      // domain_name. This is what we query CB with to find created projects.
+      const getCleanupCategory = () => {
+        if (cbCategoryNameRef.current) return cbCategoryNameRef.current;
+        const dom = product ? product.domain : customDomain;
+        return dom || struct?.domain_name || "";
+      };
+      const cleanupCategory = getCleanupCategory();
 
       const previewCleanup = async () => {
         if (!cleanupCategory) return;
@@ -543,8 +556,10 @@ CONTENT QUALITY RULES:
           console.warn("Could not start log session:", e.message);
         }
 
-        // Reset category flag so it re-creates if domain changed
+        // Reset category flag so it re-creates if domain changed.
+        // Also clear CB's canonical name — a new run may target a different category.
         categoryCreated.current = false;
+        cbCategoryNameRef.current = null;
 
         setGenStage("Connecting to OpenAI GPT-4o...");
 
@@ -859,8 +874,15 @@ CONTENT QUALITY RULES:
       const cbPostV1 = (path, body) => cbFetchV1("POST", path, body);
 
       // ── Project creation ─────────────────────────────────────────────
-      const categoryName = domain || "Demo";
+      const categoryNameIntent = domain || "Demo"; // what the user/template asked for
       const categoryCreated = useRef(false);
+      // cbCategoryNameRef declared earlier (near cleanup state, line ~248) —
+      // CB sanitizes special chars in category names ("ADAS/AD" → "ADAS-AD").
+      // After ensureCategoryExists, this ref holds CB's canonical name and
+      // is used by project POSTs, listing queries, and the cleanup panel.
+      const effectiveCategoryName = () => cbCategoryNameRef.current || categoryNameIntent;
+      // Backwards-compat alias for callers that still want a synchronous read
+      const categoryName = effectiveCategoryName();
 
       const ensureCategoryExists = async () => {
         if (categoryCreated.current || DRY_RUN) return;
@@ -868,12 +890,26 @@ CONTENT QUALITY RULES:
           const catResp = await fetch("/api/cb/api/projects/category", {
             method: "POST",
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify({ categoryName: categoryName }),
+            body: JSON.stringify({ categoryName: categoryNameIntent }),
           });
           if (catResp.ok) {
-            console.log("Category pre-created:", await catResp.json());
+            const body = await catResp.json();
+            console.log("Category pre-created:", body);
+            // CB returns the SANITIZED canonical name in body.name — capture it.
+            if (body && typeof body.name === "string" && body.name) {
+              cbCategoryNameRef.current = body.name;
+              if (body.name !== categoryNameIntent) {
+                console.warn(`CB sanitized category "${categoryNameIntent}" → "${body.name}". Using CB's canonical name for project POSTs and cleanup.`);
+              }
+            }
           } else {
-            console.log("Category pre-creation response:", catResp.status, await catResp.text());
+            const text = await catResp.text();
+            console.log("Category pre-creation response:", catResp.status, text);
+            // Try to parse — CB sometimes returns the existing category on 4xx.
+            try {
+              const body = JSON.parse(text);
+              if (body && typeof body.name === "string") cbCategoryNameRef.current = body.name;
+            } catch(_) {}
           }
           categoryCreated.current = true;
           // Wait for CB to finish provisioning the category
@@ -933,8 +969,12 @@ CONTENT QUALITY RULES:
       // Helper: fetch all projects in the category from CB
       const fetchCategoryProjects = async () => {
         try {
+          // Use CB's canonical category name (set after ensureCategoryExists)
+          // — CB sanitizes special chars, so the wizard's intent string may
+          // not match what CB stored.
+          const cat = effectiveCategoryName();
           const cbProjects = await cbGetV1(
-            `projects/page/1?pagesize=500&category=${encodeURIComponent(categoryName)}`
+            `projects/page/1?pagesize=500&category=${encodeURIComponent(cat)}`
           );
           const projectList = cbProjects?.projects || cbProjects || [];
           return Array.isArray(projectList) ? projectList : [];
@@ -1015,7 +1055,10 @@ CONTENT QUALITY RULES:
               name: currentName,
               keyName: currentKey,
               description: p.description || currentName,
-              category: categoryName,
+              // Use CB's canonical category name (CB sanitizes special chars
+              // like "/" → "-", and project POSTs must use the stored name
+              // exactly or the project goes to Uncategorized).
+              category: effectiveCategoryName(),
             };
 
             try {
@@ -1126,8 +1169,8 @@ CONTENT QUALITY RULES:
 
         setValidating(true);
         try {
-          // Fetch all projects in this category from CB
-          const cbProjects = await cbGetV1(`projects/page/1?pagesize=500&category=${encodeURIComponent(categoryName)}`);
+          // Fetch all projects in this category from CB (use CB's canonical name)
+          const cbProjects = await cbGetV1(`projects/page/1?pagesize=500&category=${encodeURIComponent(effectiveCategoryName())}`);
           const projectList = cbProjects?.projects || cbProjects || [];
 
           // Build a lookup by project name for matching
