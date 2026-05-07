@@ -363,7 +363,7 @@ CRITICAL FORMAT RULES:
 - All string values max 120 chars. No real newlines inside strings. Use \\n only in steps fields.
 - project_key max 8 alphanumeric/underscore chars. No spaces. No hyphens.
 - No apostrophes in any string value.
-- Make project_key values intuitive abbreviations of the project name (e.g. "FLTCTRL" not "PRJ001").
+- Make EVERY project_key (in projects, pl_projects, AND release_projects) an intuitive abbreviation of THAT project's own name (e.g. "FLTCTRL" for Flight Control, "BMSAFE" for Battery Safety, "VITAGRD" for VitaGuard Pro). Never use generic numbered placeholders like "PLPRJ1", "PLINT1", "RELPRJ2". All project_key values across the entire response must be unique.
 
 Return this exact JSON structure:
 {
@@ -392,7 +392,7 @@ Return this exact JSON structure:
   ],
   "pl_projects": [
     {
-      "project_key": "PLPRJ1",
+      "project_key": "PLNAME8",
       "project_name": "Platform Integration Project Name",
       "description": "Cross-subsystem integration project for this product family",
       "stream_key": "PL_XXX",
@@ -414,7 +414,7 @@ Return this exact JSON structure:
   ],
   "release_projects": [
     {
-      "project_key": "RELPRJ1",
+      "project_key": "RELNAME8",
       "project_name": "Product Model Certification/Validation Project",
       "description": "Release validation and compliance for this specific product",
       "stream_key": "REL_XXX",
@@ -566,6 +566,52 @@ CONTENT QUALITY RULES:
           if (parsed.release_projects?.length) {
             parsed.release_projects.forEach(p => { p.category = "release"; });
             parsed.projects = [...parsed.projects, ...parsed.release_projects];
+          }
+
+          // ── Defensive project_key uniqueifier ────────────────────────
+          // Even with prompt instructions, the AI sometimes copies generic
+          // placeholder keys (PLPRJ1, RELPRJ2, PLINT1, RELN3) from the
+          // exemplar JSON. These collide instance-wide on shared CB
+          // sandboxes (keyName uniqueness is global, not per-category).
+          // Detect those, rewrite from the project name + a 3-char session
+          // stamp. Pure-good keys (FLTCTRL, BMSAFE, etc.) pass through
+          // untouched so the demo UI keeps the AI's intuitive abbreviations.
+          {
+            const placeholderRe = /^(PLPRJ|RELPRJ|PLINT|RELN|RELPR|PLN|PRJ)\d+$/i;
+            const sessionStamp = (sessionPrefix || "").replace(/[^A-Za-z0-9]/g, "").slice(-3).toUpperCase() || "X";
+            const abbreviate = (name) => {
+              const cleaned = (name || "PROJ").toUpperCase().replace(/[^A-Z0-9]+/g, "");
+              return cleaned.slice(0, 5) || "PROJ";
+            };
+            const seen = new Set();
+            const keyRemap = {};
+            for (const p of parsed.projects) {
+              const original = (p.project_key || "").toUpperCase();
+              const isPlaceholder = !original || placeholderRe.test(original);
+              const isDup = seen.has(original);
+              let candidate = original;
+              if (isPlaceholder || isDup) {
+                const base = abbreviate(p.project_name);
+                candidate = (base + sessionStamp).slice(0, 8);
+                let ix = 1;
+                while (seen.has(candidate)) {
+                  const suffix = sessionStamp + String.fromCharCode(64 + (++ix));
+                  candidate = (base.slice(0, 8 - suffix.length) + suffix).slice(0, 8);
+                }
+              }
+              seen.add(candidate);
+              if (candidate !== original) {
+                keyRemap[original] = candidate;
+                console.log(`Remapped project_key "${original}" → "${candidate}" (${p.project_name})`);
+              }
+              p.project_key = candidate;
+            }
+            // Propagate remapped keys into stream.project_keys arrays
+            for (const tier of ["library_streams", "product_line_streams", "transform_streams", "release_streams"]) {
+              for (const st of (parsed[tier] || [])) {
+                st.project_keys = (st.project_keys || []).map(k => keyRemap[k.toUpperCase()] || k);
+              }
+            }
           }
 
           // Auto-add PL projects to their PL stream's project_keys
