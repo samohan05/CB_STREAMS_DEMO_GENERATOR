@@ -2409,15 +2409,20 @@ CONTENT QUALITY RULES:
               })}
 
               {(() => {
-                // All streams done? View Summary becomes the only enabled action.
+                // Live mode: View Summary is gated on every stream being "done"
+                // — prevents the consultant from showing the customer a half-built
+                // tree. Dry run: this gate is just friction (no real provisioning,
+                // user is testing the flow), so we unconditionally enable View
+                // Summary in dry run regardless of streamStatus.
                 const totalStreams = TIERS.reduce((a,t) => a + (struct[t.key]||[]).length, 0);
                 const doneStreams = Object.values(streamStatus).filter(s => s === "done").length;
                 const allDone = totalStreams > 0 && doneStreams >= totalStreams;
+                const summaryEnabled = DRY_RUN || allDone;
                 const anyPending = !allDone;
                 const cleanupBtnStyle = (anyPending && !creatingAllStreams)
                   ? smallBtnStyle(false)
                   : { ...smallBtnStyle(false), opacity:0.4, cursor:"not-allowed" };
-                const summaryBtnStyle = allDone
+                const summaryBtnStyle = summaryEnabled
                   ? btnStyle(true)
                   : { ...btnStyle(true), opacity:0.4, cursor:"not-allowed" };
                 return (
@@ -2447,9 +2452,11 @@ CONTENT QUALITY RULES:
                     <span style={{ flex:1 }} />
                     <button
                       style={summaryBtnStyle}
-                      disabled={!allDone}
-                      title={allDone ? "" : `Create all streams first (${doneStreams}/${totalStreams} done)`}
-                      onClick={() => allDone && setStep(4)}>
+                      disabled={!summaryEnabled}
+                      title={summaryEnabled
+                        ? (DRY_RUN && !allDone ? "Dry Run — skip ahead to test the summary" : "")
+                        : `Create all streams first (${doneStreams}/${totalStreams} done)`}
+                      onClick={() => summaryEnabled && setStep(4)}>
                       View Summary
                     </button>
                   </div>
