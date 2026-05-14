@@ -729,6 +729,41 @@ CONTENT QUALITY RULES:
             }
           }
 
+          // ── Orphaned library project rescuer ─────────────────────────
+          // The AI sometimes produces library_streams with fewer
+          // project_keys than there are library-category projects,
+          // leaving one or more projects orphaned (no library stream
+          // references them). They then don't appear in any library
+          // stream's Step 3 tile, and only land in PL streams via the
+          // wizard's fallback source = initialStream. Auto-assign each
+          // orphan to the library stream with the fewest projects so
+          // they're discoverable and the libraries stay balanced.
+          // Per architect direction: use an EXISTING library stream;
+          // never invent a "Misc Library".
+          {
+            const libProjects = parsed.projects.filter(p => p.category === "library");
+            const libStreams = parsed.library_streams || [];
+            if (libStreams.length > 0) {
+              const referenced = new Set();
+              for (const ls of libStreams) {
+                for (const k of (ls.project_keys || [])) referenced.add(k);
+              }
+              const orphans = libProjects.filter(p => !referenced.has(p.project_key));
+              for (const orphan of orphans) {
+                // Pick library stream with fewest projects (deterministic
+                // tie-breaker: first match wins).
+                let target = libStreams[0];
+                for (const ls of libStreams) {
+                  if ((ls.project_keys || []).length < (target.project_keys || []).length) {
+                    target = ls;
+                  }
+                }
+                target.project_keys = [...(target.project_keys || []), orphan.project_key];
+                console.warn(`Orphaned library project "${orphan.project_name}" (key ${orphan.project_key}) — auto-assigned to library stream "${target.stream_name}".`);
+              }
+            }
+          }
+
           // Auto-add PL projects to their PL stream's project_keys
           for (const plp of (parsed.pl_projects || [])) {
             const plStream = (parsed.product_line_streams || []).find(s => s.stream_key === plp.stream_key);
