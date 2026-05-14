@@ -33,6 +33,22 @@
       padding: 2rem 1rem;
     }
     #root { max-width: 740px; width: 100%; }
+
+    /* ── Print stylesheet — only Step 4 Summary is printed ── */
+    @media print {
+      body { padding: 0; display: block; }
+      #root { max-width: 100%; }
+      /* Hide chrome that isn't part of the report */
+      .no-print, .no-print * { display: none !important; }
+      /* Force expanded view for everything */
+      .print-expanded { display: block !important; }
+      /* Defeat row hover/click affordances on print */
+      [role="button"], button { cursor: default !important; }
+      /* Page break hints */
+      .print-section { page-break-inside: avoid; }
+      a { color: #212529 !important; text-decoration: none !important; }
+      a[href]:after { content: " (" attr(href) ")"; font-size: 9px; color: #6c757d; }
+    }
   </style>
 </head>
 <body>
@@ -40,6 +56,12 @@
 
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
+
+    // ─── Tool version (shown in export footer for auditability) ──────────
+    // Bump this with each significant release. Last commit short SHA is
+    // included so an exported report can be traced to a code version.
+    const TOOL_VERSION = "v4 · 2026-05-14 · commit e1aa85a";
+    const TOOL_REPO = "https://github.com/samohan05/CB_STREAMS_DEMO_GENERATOR";
 
     // ─── Product Catalog ──────────────────────────────────────────────
     const PRODUCTS = [
@@ -1571,7 +1593,7 @@ CONTENT QUALITY RULES:
       // ═══════════════════════════════════════════════════════════════
       return (
         <div style={{ padding:"0.5rem 0" }}>
-          <div style={{ marginBottom:24 }}>
+          <div className="no-print" style={{ marginBottom:24 }}>
             <div style={{ fontSize:20, fontWeight:600, color:"var(--text-primary)" }}>
               CB Demo Generator v4
             </div>
@@ -1608,7 +1630,7 @@ CONTENT QUALITY RULES:
             </div>
           </div>
 
-          <StepBar current={step} />
+          <div className="no-print"><StepBar current={step} /></div>
 
           {/* ══ Step 0: Product Selection ════════════════════════════ */}
           {step === 0 && (
@@ -2500,6 +2522,209 @@ CONTENT QUALITY RULES:
               return "—";
             };
 
+            // ─── Export helpers ─────────────────────────────────────────
+            // HTML escape (defense against project names with <, &, " in them)
+            const esc = (s) => String(s == null ? "" : s)
+              .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+            // Filename-safe timestamp: YYYY-MM-DD-HHmm
+            const fileTs = (d) => {
+              const p = (n) => String(n).padStart(2, "0");
+              return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+            };
+
+            // Build a self-contained, print-friendly HTML report from the
+            // current summary state. All CSS is inlined (no var(--...)
+            // references) so the file renders identically offline.
+            const buildExportHtml = () => {
+              const tsLabel = generatedAt ? generatedAt.toLocaleString() : new Date().toLocaleString();
+              const totalReqs = Object.values(reqCounts).reduce((a,c) => a + (c?.reqs||0), 0);
+              const totalTcs = Object.values(reqCounts).reduce((a,c) => a + (c?.tcs||0), 0);
+              const totalStreams = TIERS.reduce((a,t) => a + (struct[t.key]||[]).length, 0);
+
+              const projRows = struct.projects.map((p, i) => {
+                const cat = p.category || "library";
+                const tier = cat === "release" ? TIERS[3] : cat === "product_line" ? TIERS[1] : TIERS[0];
+                const arts = projectArtifacts[i];
+                const pid = projectIds[i];
+                const projUrl = cbProjectUrl(p.project_key);
+                const reqsHtml = (arts?.reqs || []).map(r => {
+                  const u = cbIssueUrl(r.id);
+                  return `<div class="art-row"><span>${esc(r.title)}</span><span class="art-id">${u ? `<a href="${esc(u)}">id ${esc(r.id)}</a>` : `id ${esc(r.id)}`}</span></div>`;
+                }).join("");
+                const tcsHtml = (arts?.tcs || []).map(t => {
+                  const u = cbIssueUrl(t.id);
+                  const verLinks = (t.verifies||[]).map(rid => {
+                    const vu = cbIssueUrl(rid);
+                    return vu ? `<a href="${esc(vu)}">${esc(rid)}</a>` : esc(rid);
+                  }).join(", ");
+                  return `<div class="art-row"><span>${esc(t.title)}</span><span class="art-meta">verifies ${verLinks}</span><span class="art-id">${u ? `<a href="${esc(u)}">id ${esc(t.id)}</a>` : `id ${esc(t.id)}`}</span></div>`;
+                }).join("");
+                return `
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:${tier.clr}"></span>
+                      <span class="proj-name">${projUrl ? `<a href="${esc(projUrl)}">${esc(p.project_name)}</a>` : esc(p.project_name)}</span>
+                      <span class="pill" style="color:${tier.clr};background:${tier.bg}">${esc(cat === "product_line" ? "product line" : cat)}</span>
+                      <span class="proj-id">${pid ? (projUrl ? `<a href="${esc(projUrl)}">id ${esc(pid)}</a>` : `id ${esc(pid)}`) : "—"}</span>
+                    </div>
+                    ${arts ? `
+                    <div class="proj-body">
+                      ${(arts.reqs?.length) ? `<div class="art-block"><div class="art-label">${arts.reqs.length} REQUIREMENTS</div>${reqsHtml}</div>` : ""}
+                      ${(arts.tcs?.length) ? `<div class="art-block"><div class="art-label">${arts.tcs.length} TEST CASES</div>${tcsHtml}</div>` : ""}
+                    </div>` : ""}
+                  </div>`;
+              }).join("");
+
+              const streamSections = TIERS.map(tier => {
+                const streams = struct[tier.key] || [];
+                if (!streams.length) return "";
+                const rows = streams.map(st => {
+                  const sid = streamIds[st.stream_key];
+                  const sUrl = cbStreamUrl(sid);
+                  const ownedKeys = (() => {
+                    const own = { library_streams:["library"], product_line_streams:["library","product_line"], transform_streams:[], release_streams:["release"] }[tier.key] || [];
+                    return (st.project_keys || []).filter(pk => {
+                      const p = struct.projects?.find(p => p.project_key === pk);
+                      return p && own.includes(p.category);
+                    });
+                  })();
+                  const inheritedCount = (st.project_keys?.length || 0) - ownedKeys.length;
+                  const parentName = st.parent_stream_key ? streamNameByKey[st.parent_stream_key] : null;
+                  let summary;
+                  if (tier.key === "library_streams" || tier.key === "product_line_streams")
+                    summary = `No parent — independent root  ·  ${ownedKeys.length} project${ownedKeys.length===1?"":"s"}`;
+                  else if (tier.key === "transform_streams")
+                    summary = `Branched from ${parentName || "—"}  ·  mirrors ${inheritedCount} project${inheritedCount===1?"":"s"} via inheritance`;
+                  else
+                    summary = `Branched from ${parentName || "—"}  ·  inherits ${inheritedCount}  ·  ${ownedKeys.length} release-specific`;
+
+                  const projRows = ownedKeys.map(pk => {
+                    const p = struct.projects?.find(pr => pr.project_key === pk);
+                    const projUrl = cbProjectUrl(pk);
+                    return `<div class="stream-proj"><span>${projUrl ? `<a href="${esc(projUrl)}">${esc(p?.project_name || pk)}</a>` : esc(p?.project_name || pk)}</span><span class="source">source: ${esc(sourceLabelForProject(tier.key, st, pk))}</span></div>`;
+                  }).join("");
+
+                  return `
+                    <div class="stream print-section" style="border-left:3px solid ${tier.clr}">
+                      <div class="stream-head">
+                        <span class="stream-name">${sessionPrefix ? `<span class="prefix">[${esc(sessionPrefix)}]</span> ` : ""}${sUrl ? `<a href="${esc(sUrl)}">${esc(st.stream_name)}</a>` : esc(st.stream_name)}</span>
+                        <span class="stream-id">${sid ? (sUrl ? `<a href="${esc(sUrl)}">id ${esc(sid)}</a>` : `id ${esc(sid)}`) : "—"}</span>
+                      </div>
+                      <div class="stream-sub">${esc(summary)}</div>
+                      ${ownedKeys.length ? `<div class="stream-projs">${projRows}</div>` : ""}
+                    </div>`;
+                }).join("");
+                return `<div class="tier-block"><h2 class="tier-label" style="color:${tier.clr}">${esc(tier.label)} <span class="tier-count">(${streams.length})</span></h2>${rows}</div>`;
+              }).join("");
+
+              return `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<title>CB Demo Summary — ${esc(struct.domain_name)} — ${esc(sessionPrefix||"")}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #212529; background: #fff; padding: 32px; max-width: 900px; margin: 0 auto; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  h2.tier-label { font-size: 15px; font-weight: 600; margin-top: 24px; margin-bottom: 10px; }
+  .meta { font-size: 12px; color: #6c757d; margin-bottom: 24px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
+  .stat { padding: 14px 16px; border-radius: 8px; }
+  .stat-val { font-size: 24px; font-weight: 600; }
+  .stat-lbl { font-size: 11px; color: #6c757d; margin-top: 2px; }
+  .section-h { font-size: 15px; font-weight: 600; margin: 20px 0 10px; }
+  .proj { border: 1px solid #dee2e6; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .proj-head { display: flex; align-items: center; gap: 10px; }
+  .proj-name { font-size: 13px; font-weight: 500; flex: 1; }
+  .pill { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
+  .proj-id, .stream-id { font-size: 11px; font-family: monospace; color: #adb5bd; min-width: 90px; text-align: right; }
+  .proj-body { margin-top: 10px; padding-left: 16px; }
+  .art-block { border-left: 2px solid #dee2e6; padding-left: 12px; padding-bottom: 4px; margin-bottom: 8px; }
+  .art-label { font-size: 10px; font-weight: 600; color: #adb5bd; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .art-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+  .art-row > span:first-child { flex: 1; }
+  .art-meta { color: #adb5bd; font-size: 11px; }
+  .art-id { color: #adb5bd; font-family: monospace; font-size: 11px; min-width: 90px; text-align: right; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .stream { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .stream-head { display: flex; align-items: center; gap: 10px; }
+  .stream-name { font-size: 13px; font-weight: 500; flex: 1; }
+  .prefix { color: #adb5bd; font-weight: 400; }
+  .stream-sub { font-size: 11px; color: #6c757d; margin-top: 4px; padding-left: 4px; }
+  .stream-projs { margin-top: 8px; padding-left: 16px; border-left: 2px solid #dee2e6; }
+  .stream-proj { display: flex; align-items: center; padding: 3px 0; font-size: 12px; }
+  .stream-proj > span:first-child { flex: 1; }
+  .source { color: #adb5bd; font-size: 11px; }
+  .tier-count { font-weight: 400; color: #adb5bd; }
+  footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #dee2e6; font-size: 11px; color: #6c757d; }
+  footer a { color: inherit; text-decoration: underline; }
+  @media print {
+    body { padding: 0; }
+    .stream, .proj { page-break-inside: avoid; }
+    a[href]:after { content: " (" attr(href) ")"; font-size: 9px; color: #6c757d; }
+  }
+</style>
+</head><body>
+<h1>Demo Summary: ${esc(struct.domain_name)}</h1>
+<div class="meta">${sessionPrefix ? `[${esc(sessionPrefix)}] · ` : ""}${DRY_RUN ? "Dry Run" : "Live mode"}${tsLabel ? ` · Created ${esc(tsLabel)}` : ""}</div>
+
+<div class="stats">
+  <div class="stat" style="background:#EEEDFE"><div class="stat-val" style="color:#534AB7">${struct.projects?.length || 0}</div><div class="stat-lbl">Projects</div></div>
+  <div class="stat" style="background:#FAEEDA"><div class="stat-val" style="color:#854F0B">${totalReqs}</div><div class="stat-lbl">Requirements</div></div>
+  <div class="stat" style="background:#E6F1FB"><div class="stat-val" style="color:#185FA5">${totalTcs}</div><div class="stat-lbl">Test Cases</div></div>
+  <div class="stat" style="background:#E1F5EE"><div class="stat-val" style="color:#0F6E56">${totalStreams}</div><div class="stat-lbl">Streams</div></div>
+</div>
+
+<h2 class="section-h">Projects</h2>
+${projRows}
+
+${streamSections}
+
+<footer>
+  Generated by CB Demo Generator <strong>${esc(TOOL_VERSION)}</strong> — <a href="${esc(TOOL_REPO)}">${esc(TOOL_REPO)}</a>
+  <br>
+  Exported ${esc(new Date().toLocaleString())} from CB instance ${esc(cbUrl || "(unknown)")}.
+</footer>
+</body></html>`;
+            };
+
+            const exportSummaryHtml = () => {
+              try {
+                const html = buildExportHtml();
+                const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `cb-demo-${(sessionPrefix || "summary").replace(/[^\w-]/g, "_")}-${fileTs(new Date())}.html`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                console.error("HTML export failed:", e);
+                alert(`Export failed: ${e.message}`);
+              }
+            };
+
+            // Print needs every project/stream expanded — the wizard
+            // conditionally renders details, so CSS alone can't reveal them.
+            // Flip summaryAllExpanded → wait for React to repaint → print →
+            // restore the previous toggle state after the dialog closes.
+            const printSummary = () => {
+              const prev = summaryAllExpanded;
+              setSummaryAllExpanded(true);
+              setTimeout(() => {
+                window.print();
+                // window.print() blocks until the dialog is dismissed in most
+                // browsers; restore after a tick so we don't snap closed
+                // before the dialog renders.
+                setTimeout(() => setSummaryAllExpanded(prev), 0);
+              }, 150);
+            };
+
             // Filter project_keys per tier ownership (matches createStream B-1 filter)
             const ownedProjectsForStream = (tierKey, stream) => {
               const own = { library_streams:["library"], product_line_streams:["library","product_line"], transform_streams:[], release_streams:["release"] }[tierKey] || [];
@@ -2513,21 +2738,37 @@ CONTENT QUALITY RULES:
 
             return (
             <div>
-              {/* Header */}
-              <div style={{ marginBottom:20 }}>
-                <div style={{ fontSize:20, fontWeight:600, color:"var(--text-primary)", marginBottom:4 }}>
-                  Demo Summary: {struct.domain_name}
+              {/* Header — title on the left, export actions top-right */}
+              <div style={{ display:"flex", alignItems:"flex-start", gap:12, marginBottom:20 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:20, fontWeight:600, color:"var(--text-primary)", marginBottom:4 }}>
+                    Demo Summary: {struct.domain_name}
+                  </div>
+                  <div style={{ fontSize:12, color:"var(--text-secondary)" }}>
+                    {sessionPrefix && <>[{sessionPrefix}]  ·  </>}
+                    {DRY_RUN ? "Dry Run" : "Live mode"}
+                    {tsLabel && <>  ·  Created {tsLabel}</>}
+                  </div>
                 </div>
-                <div style={{ fontSize:12, color:"var(--text-secondary)" }}>
-                  {sessionPrefix && <>[{sessionPrefix}]  ·  </>}
-                  {DRY_RUN ? "Dry Run" : "Live mode"}
-                  {tsLabel && <>  ·  Created {tsLabel}</>}
+                <div className="no-print" style={{ display:"flex", gap:6, flexShrink:0 }}>
+                  <button
+                    style={{ ...smallBtnStyle(false), fontSize:11, padding:"5px 10px" }}
+                    title="Save this summary as a self-contained HTML file"
+                    onClick={exportSummaryHtml}>
+                    ↓ Export HTML
+                  </button>
+                  <button
+                    style={{ ...smallBtnStyle(false), fontSize:11, padding:"5px 10px" }}
+                    title="Open the browser print dialog (use 'Save as PDF' for a PDF)"
+                    onClick={printSummary}>
+                    🖨 Print
+                  </button>
                 </div>
               </div>
 
               {/* Aborted-run banner */}
               {abortMode && (
-                <div style={{ padding:"10px 14px", marginBottom:16, background:"#FEF2F2",
+                <div className="no-print" style={{ padding:"10px 14px", marginBottom:16, background:"#FEF2F2",
                   border:"1px solid #FECACA", borderRadius:8, fontSize:12, color:"#7F1D1D" }}>
                   <strong>Run aborted.</strong> Clean up the projects below, then click <em>Start New Demo</em> at the bottom to reset the wizard.
                 </div>
@@ -2542,7 +2783,7 @@ CONTENT QUALITY RULES:
               </div>
 
               {/* Expand toggle — segmented chip */}
-              <div style={{ display:"flex", justifyContent:"center", marginBottom:18 }}>
+              <div className="no-print" style={{ display:"flex", justifyContent:"center", marginBottom:18 }}>
                 <div style={{ display:"inline-flex", padding:3, borderRadius:8, background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)" }}>
                   {[
                     { v:false, label:"▶  Collapsed" },
@@ -2734,7 +2975,7 @@ CONTENT QUALITY RULES:
               })}
 
               {/* Next steps */}
-              <div style={{ marginTop:6, padding:"12px 14px", background:"var(--bg-secondary)",
+              <div className="no-print" style={{ marginTop:6, padding:"12px 14px", background:"var(--bg-secondary)",
                 borderRadius:8, borderLeft:"3px solid #1D9E75", fontSize:13, color:"var(--text-secondary)" }}>
                 <div style={{ fontWeight:500, color:"#065F46", marginBottom:4 }}>Next steps in Codebeamer</div>
                 <div>1. Navigate to ALM &gt; Streams and verify the hierarchy.</div>
@@ -2744,7 +2985,7 @@ CONTENT QUALITY RULES:
               </div>
 
               {/* Cleanup panel — call after demo / before next run */}
-              <div style={{ marginTop:20, padding:"12px 14px", background:"#FEF2F2",
+              <div className="no-print" style={{ marginTop:20, padding:"12px 14px", background:"#FEF2F2",
                 borderRadius:8, borderLeft:"3px solid #DC2626", fontSize:13, color:"var(--text-secondary)" }}>
                 <div style={{ fontWeight:500, color:"#7F1D1D", marginBottom:6 }}>
                   Clean up this demo
@@ -2819,7 +3060,7 @@ CONTENT QUALITY RULES:
                 )}
               </div>
 
-              <button style={{...btnStyle(false), marginTop:16}} onClick={() => {
+              <button className="no-print" style={{...btnStyle(false), marginTop:16}} onClick={() => {
                 setStep(0); setStruct(null); streamIdsRef.current = {};
                 setProjectArtifacts({}); setSummaryExpanded({}); setSummaryAllExpanded(false); setAbortMode(false);
               }}>
