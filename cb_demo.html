@@ -23,6 +23,8 @@
       --ptc-dark:   #3D4647;  /* primary body text */
       --ptc-grey:   #C8C9C7;  /* borders, dividers */
       --ptc-white:  #FFFFFF;  /* background */
+      --ptc-green-tint: #A8E89F;  /* light green — hero eyebrow + dark-bg links */
+      --ptc-navy-dark:  #2A3F4F;  /* deep navy — final-CTA gradient start */
 
       /* ── Semantic tokens (mapped to PTC palette) ── */
       --bg-primary:      var(--ptc-white);
@@ -247,69 +249,315 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Phase 2 — MANAGEMENT VIEW
-    // High-level industry showcase. No wizard chrome. Picks an industry
-    // tile and flips to product view with the domain pre-selected.
+    // LANDING PAGE
+    // Marketing overview for the Codebeamer ALM Demo Generator. Walked
+    // through in a room with management + solution-consultant audiences
+    // before any of them touch the wizard. Sections: hero, what it does,
+    // how it works (5-step workflow), capabilities, limitations, personas,
+    // final CTA. Tone: confident but honest about boundaries.
     // ═══════════════════════════════════════════════════════════════════
-    function ManagementView({ onPick, onSwitchToProduct }) {
+    function LandingPage({ onLaunch }) {
+      // Section reusables — keep visual rhythm consistent.
+      const sectionStyle = { marginBottom:40 };
+      const sectionLabelStyle = {
+        // R2 — 12px so the eyebrow is legible at the back of a room on a projector.
+        fontSize:12, fontWeight:600, color:"var(--ptc-green)",
+        textTransform:"uppercase", letterSpacing:1.2, marginBottom:8,
+      };
+      const sectionTitleStyle = {
+        fontSize:22, fontWeight:600, color:"var(--text-primary)",
+        marginBottom:18, lineHeight:1.3,
+      };
+
+      const features = [
+        { icon:"⚡", title:"End-to-end traceability, generated in under three minutes.",
+          body:"Projects, requirements, test cases, and Verifies links are wired up before you finish your coffee." },
+        { icon:"🏭", title:"Eight regulated-industry templates out of the box.",
+          body:"MedTech, Aerospace, Automotive ADAS, Pharma, Energy, Medical Imaging, Industrial Equipment, Consumer Electronics — plus custom domains." },
+        { icon:"🌳", title:"A four-tier stream hierarchy your customer will recognise.",
+          body:"Library, Product Line, Transform, and Release tiers with realistic inheritance — the conversation Codebeamer was built to win." },
+        { icon:"🔍", title:"Dry-run before you commit.",
+          body:"Preview the full structure offline, then provision live only when the demo is on the calendar." },
+        { icon:"👥", title:"Session isolation for concurrent consultants.",
+          body:"Per-session prefixes mean two consultants can demo into the same sandbox without colliding." },
+        { icon:"📄", title:"Customer-ready handoff artifacts.",
+          body:"HTML export, print-to-PDF summary, and an SVG lineage diagram you can drop into a follow-up email." },
+      ];
+
+      const workflow = [
+        { n:"1", title:"Pick a domain", body:"Choose one of eight templates or define your own." },
+        { n:"2", title:"Size the environment", body:"Set the number of projects, requirements, and test cases." },
+        { n:"3", title:"Generate", body:"GPT-4o drafts the structure; you review it before anything touches Codebeamer." },
+        { n:"4", title:"Provision", body:"One click pushes projects, items, and traceability into the sandbox — with progress and resume." },
+        { n:"5", title:"Review and hand off", body:"Inspect Projects, Streams, and the Lineage diagram; export the summary." },
+      ];
+
+      const capabilities = [
+        "Builds a complete demo in 1–3 minutes",
+        "Generates realistic, domain-correct requirements and test cases",
+        "Wires Verifies traceability across the hierarchy",
+        "Auto-resumes if you re-enter the same domain mid-run",
+        "Cleans up generated projects in one click",
+        "Works against any Codebeamer 3.2+ sandbox",
+        "Visualises stream inheritance as an SVG lineage diagram",
+        "Filterable, tab-based review of everything that was created",
+        "Domain-agnostic — reusable across MedTech, Auto, Aero, and beyond",
+      ];
+
+      const limitations = [
+        "Streams cannot be deleted via the Codebeamer API — cleanup of streams is manual in the UI.",
+        "The merge workflow has to be demonstrated live in Codebeamer; the tool does not animate it.",
+        "Generation takes 10–60 seconds; live provisioning of ~60 projects adds about a minute.",
+        // R4 — sandbox-only + prerequisites merged so the list reads as honest limits, not setup notes.
+        "Sandbox-only. Not safe for customer production tenants. Requires a live Codebeamer sandbox and backend OpenAI access.",
+        "No automatic undo once a live run is committed — use Dry Run first.",
+      ];
+
+      const personas = [
+        { who:"The pre-sales consultant",
+          ctx:"with a 9 a.m. discovery call and no time to hand-build a Pharma demo overnight." },
+        { who:"The sales leader",
+          ctx:"who needs every consultant in the region to walk into the room with a consistent, defensible Codebeamer story." },
+        { who:"The customer success architect",
+          ctx:"running enablement workshops who needs a clean, repeatable environment for every session." },
+      ];
+
       return (
-        <div className="fade-in" style={{ padding:"8px 0 24px 0" }}>
-          {/* Hero — uses the wordmark asset, not the icon */}
+        <div className="fade-in" style={{ padding:"0 0 24px" }}>
+
+          {/* ─── HERO ─────────────────────────────────────────────────────── */}
           <div style={{
-            textAlign:"center", padding:"32px 16px 24px",
-            background:"linear-gradient(180deg, #F5F7F4 0%, #FFFFFF 100%)",
-            borderRadius:12, border:"1px solid var(--border-tertiary)",
-            marginBottom:24,
+            position:"relative", padding:"56px 40px 52px",
+            borderRadius:16, marginBottom:48,
+            background:"linear-gradient(135deg, #1D496E 0%, #197BC0 100%)",
+            color:"#FFFFFF", overflow:"hidden",
           }}>
-            <img src="/assets/codebeamer-wordmark.png"
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
-              alt="Codebeamer"
-              style={{ height:44, width:"auto", marginBottom:14, maxWidth:"80%" }}
-            />
-            <div style={{ fontSize:22, fontWeight:600, color:"var(--text-primary)", marginBottom:8, lineHeight:1.3 }}>
-              What does a Codebeamer ALM demo look like for your industry?
-            </div>
-            <div style={{ fontSize:14, color:"var(--text-secondary)", maxWidth:560, margin:"0 auto", lineHeight:1.6 }}>
-              A consultant-led walkthrough of a live, domain-specific Codebeamer environment — projects, requirements, traceability, and a complete 4-tier stream hierarchy. Built around your industry&apos;s standards and compliance reality.
+            {/* Decorative accent */}
+            <div style={{ position:"absolute", top:-40, right:-40, width:240, height:240,
+              borderRadius:"50%", background:"rgba(64,170,29,0.18)", pointerEvents:"none" }} />
+            <div style={{ position:"absolute", bottom:-60, left:-60, width:200, height:200,
+              borderRadius:"50%", background:"rgba(255,255,255,0.06)", pointerEvents:"none" }} />
+
+            <div style={{ position:"relative", maxWidth:780 }}>
+              {/* Wordmark — falls back to a styled text lockup so the hero never
+                  appears empty on deployments missing the asset. */}
+              <img src="/assets/codebeamer-wordmark.png"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                  const fallback = e.currentTarget.nextElementSibling;
+                  if (fallback) fallback.style.display = "block";
+                }}
+                alt="Codebeamer"
+                style={{ height:36, width:"auto", marginBottom:24, filter:"brightness(0) invert(1)", opacity:0.95 }}
+              />
+              <div style={{
+                display:"none", fontSize:24, fontWeight:600, letterSpacing:0.4,
+                color:"#FFFFFF", marginBottom:24,
+              }}>
+                Codebeamer<span style={{ color:"var(--ptc-green-tint)" }}>.</span>
+              </div>
+              <div style={{ fontSize:13, fontWeight:600, letterSpacing:1.2, textTransform:"uppercase",
+                color:"var(--ptc-green-tint)", marginBottom:14 }}>
+                ALM Demo Generator · Pre-sales tooling
+              </div>
+              <div style={{ fontSize:34, fontWeight:600, lineHeight:1.2, marginBottom:18 }}>
+                A credible Codebeamer demo environment, ready before your customer joins the call.
+              </div>
+              <div style={{ fontSize:15, lineHeight:1.7, color:"rgba(255,255,255,0.88)", marginBottom:30, maxWidth:680 }}>
+                Provisioning a Codebeamer ALM environment with realistic requirements, test coverage, and a four-tier stream hierarchy used to take a consultant a full day. This tool does it in under three minutes against any sandbox, for any regulated industry, without leaving traces in production.
+              </div>
+              <div style={{ display:"flex", gap:14, flexWrap:"wrap", alignItems:"center" }}>
+                <button
+                  onClick={onLaunch}
+                  className="smooth-hover"
+                  style={{
+                    padding:"14px 28px", fontSize:14, fontWeight:600,
+                    background:"var(--ptc-green)", color:"#FFFFFF",
+                    border:"none", borderRadius:8, cursor:"pointer",
+                    boxShadow:"0 4px 14px rgba(64,170,29,0.35)",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 18px rgba(64,170,29,0.45)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 4px 14px rgba(64,170,29,0.35)"; }}>
+                  Launch the Generator →
+                </button>
+                <span style={{ fontSize:12, color:"rgba(255,255,255,0.7)" }}>
+                  Internal PTC pre-sales tool · Sandboxes only
+                </span>
+              </div>
             </div>
           </div>
 
-          <div style={{ fontSize:14, fontWeight:500, marginBottom:12, color:"var(--text-primary)" }}>
-            Pick an industry to see a tailored demo:
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:12, marginBottom:20 }}>
-            {PRODUCTS.map(p => (
-              <div key={p.id} onClick={() => onPick(p)}
-                style={{
-                  padding:"20px 14px", borderRadius:8, cursor:"pointer", textAlign:"center",
-                  border:"1.5px solid var(--border-tertiary)",
-                  background:"var(--bg-primary)",
-                  transition:"all 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--ptc-green)";
-                  e.currentTarget.style.background = "var(--bg-secondary)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border-tertiary)";
-                  e.currentTarget.style.background = "var(--bg-primary)";
-                }}>
-                <div style={{ fontSize:24, marginBottom:8 }}>{p.emoji}</div>
-                <div style={{ fontSize:12, fontWeight:500, color:"var(--text-primary)" }}>{p.label}</div>
-                <div style={{ fontSize:10, color:"var(--text-tertiary)", marginTop:4, lineHeight:1.3 }}>{p.industry}</div>
+          {/* ─── HEADLINE STATS BAND ──────────────────────────────────────── */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:12, marginBottom:48 }}>
+            {[
+              { n:"< 3 min", l:"end-to-end provisioning" },
+              { n:"8", l:"regulated-industry templates" },
+              { n:"4-tier", l:"stream hierarchy" },
+              { n:"60+", l:"projects per run" },
+            ].map((s,i) => (
+              <div key={i} style={{
+                padding:"20px 16px", textAlign:"center", borderRadius:10,
+                background:"var(--bg-primary)", border:"1px solid var(--border-secondary)",
+                borderTop:"3px solid var(--ptc-green)",
+              }}>
+                <div style={{ fontSize:24, fontWeight:600, color:"var(--text-primary)", lineHeight:1.1 }}>{s.n}</div>
+                <div style={{ fontSize:11, color:"var(--text-tertiary)", textTransform:"uppercase",
+                  letterSpacing:0.6, marginTop:6 }}>{s.l}</div>
               </div>
             ))}
           </div>
 
+          {/* ─── WHAT IT DOES ─────────────────────────────────────────────── */}
+          <div style={sectionStyle}>
+            <div style={sectionLabelStyle}>What it does</div>
+            <div style={sectionTitleStyle}>Six things you previously hand-built before every demo.</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:16 }}>
+              {features.map((f,i) => (
+                <div key={i} style={{
+                  padding:"20px 18px", borderRadius:10,
+                  background:"var(--bg-primary)", border:"1px solid var(--border-secondary)",
+                }}>
+                  <div style={{ fontSize:22, marginBottom:10 }}>{f.icon}</div>
+                  <div style={{ fontSize:14, fontWeight:600, color:"var(--text-primary)", marginBottom:8, lineHeight:1.35 }}>
+                    {f.title}
+                  </div>
+                  <div style={{ fontSize:12, color:"var(--text-secondary)", lineHeight:1.6 }}>
+                    {f.body}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ─── HOW IT WORKS (5-step flow) ───────────────────────────────── */}
+          <div style={sectionStyle}>
+            <div style={sectionLabelStyle}>How it works</div>
+            <div style={sectionTitleStyle}>A five-step wizard, designed for the 20 minutes before the call.</div>
+            <div style={{
+              // R5 — real gap between steps; arrow lives inside the column gap so
+              // it can't visually collide with the next step's title at any width.
+              display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:24,
+              padding:"24px", borderRadius:10,
+              background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)",
+            }}>
+              {workflow.map((w,i) => (
+                <div key={w.n} style={{ position:"relative" }}>
+                  <div style={{
+                    width:36, height:36, borderRadius:"50%",
+                    background:"var(--ptc-green)", color:"#FFFFFF",
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:14, fontWeight:600, marginBottom:10,
+                  }}>{w.n}</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:"var(--text-primary)", marginBottom:6, lineHeight:1.35 }}>
+                    {w.title}
+                  </div>
+                  <div style={{ fontSize:11, color:"var(--text-secondary)", lineHeight:1.55 }}>
+                    {w.body}
+                  </div>
+                  {i < workflow.length - 1 && (
+                    <div style={{
+                      position:"absolute", top:10, right:-18, fontSize:18,
+                      color:"var(--text-tertiary)", lineHeight:1, fontWeight:300,
+                    }}>→</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ─── CAPABILITIES vs LIMITATIONS (side-by-side honest pair) ──── */}
+          <div style={sectionStyle}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:24 }}>
+              {/* Capabilities */}
+              <div style={{
+                padding:"24px", borderRadius:10,
+                background:"var(--bg-primary)", border:"1px solid var(--border-secondary)",
+                borderLeft:"4px solid var(--ptc-green)",
+              }}>
+                <div style={{ ...sectionLabelStyle, color:"var(--ptc-green)" }}>What it does well</div>
+                <div style={{ fontSize:17, fontWeight:600, color:"var(--text-primary)", marginBottom:14, lineHeight:1.3 }}>
+                  Confidence to bring it into the room.
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {capabilities.map((c,i) => (
+                    <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                      <span style={{ color:"var(--ptc-green)", fontWeight:700, fontSize:13, lineHeight:1.5, marginTop:1 }}>✓</span>
+                      <span style={{ fontSize:13, color:"var(--text-secondary)", lineHeight:1.55 }}>{c}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Limitations */}
+              <div style={{
+                padding:"24px", borderRadius:10,
+                background:"var(--bg-primary)", border:"1px solid var(--border-secondary)",
+                borderLeft:"4px solid var(--ptc-orange)",
+              }}>
+                <div style={{ ...sectionLabelStyle, color:"var(--ptc-orange)" }}>Where it stops</div>
+                <div style={{ fontSize:17, fontWeight:600, color:"var(--text-primary)", marginBottom:14, lineHeight:1.3 }}>
+                  Limits we name up front, so you can plan around them.
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {limitations.map((l,i) => (
+                    <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                      <span style={{ color:"var(--ptc-orange)", fontWeight:700, fontSize:13, lineHeight:1.5, marginTop:1 }}>!</span>
+                      <span style={{ fontSize:13, color:"var(--text-secondary)", lineHeight:1.55 }}>{l}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ─── PERSONAS (who it's for) ──────────────────────────────────── */}
+          <div style={sectionStyle}>
+            <div style={sectionLabelStyle}>Who it's for</div>
+            <div style={sectionTitleStyle}>Built for the three people who own a customer's first impression.</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:16 }}>
+              {personas.map((p,i) => (
+                <div key={i} style={{
+                  padding:"20px 18px", borderRadius:10,
+                  background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)",
+                  // R3 — green rail visually differentiates the three personas at a glance.
+                  borderLeft:"2px solid var(--ptc-green)",
+                }}>
+                  <div style={{ fontSize:14, fontWeight:600, color:"var(--ptc-navy)", marginBottom:8 }}>
+                    {p.who}
+                  </div>
+                  <div style={{ fontSize:12, color:"var(--text-secondary)", lineHeight:1.6 }}>
+                    …{p.ctx}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ─── FINAL CTA ────────────────────────────────────────────────── */}
           <div style={{
-            textAlign:"center", marginTop:24, padding:"20px 16px",
-            background:"var(--bg-secondary)", borderRadius:8, fontSize:13, color:"var(--text-secondary)",
+            padding:"40px 32px", borderRadius:14, textAlign:"center",
+            background:"linear-gradient(135deg, var(--ptc-navy-dark) 0%, var(--ptc-navy) 100%)",
+            color:"#FFFFFF", marginBottom:24,
           }}>
-            Or skip the industry showcase and use the wizard directly:&nbsp;
-            <span onClick={onSwitchToProduct}
-              style={{ color:"var(--ptc-green)", fontWeight:600, cursor:"pointer" }}>
-              Switch to Product view →
-            </span>
+            <div style={{ fontSize:22, fontWeight:600, marginBottom:10, lineHeight:1.3 }}>
+              Stop rebuilding the same demo. Spend the time on the customer instead.
+            </div>
+            <div style={{ fontSize:13, color:"rgba(255,255,255,0.78)", marginBottom:22 }}>
+              Internal PTC pre-sales tool · Sandboxes only · Questions: <a href="mailto:samohan@ptc.com" style={{ color:"var(--ptc-green-tint)" }}>samohan@ptc.com</a>
+            </div>
+            <button
+              onClick={onLaunch}
+              className="smooth-hover"
+              style={{
+                padding:"14px 30px", fontSize:14, fontWeight:600,
+                background:"var(--ptc-green)", color:"#FFFFFF",
+                border:"none", borderRadius:8, cursor:"pointer",
+                boxShadow:"0 4px 14px rgba(64,170,29,0.4)",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(64,170,29,0.55)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 4px 14px rgba(64,170,29,0.4)"; }}>
+              Launch the Generator →
+            </button>
           </div>
         </div>
       );
@@ -438,11 +686,13 @@
       // Alias for easy reference throughout
       const DRY_RUN = dryRun;
 
-      // Phase 2 — view router: "management" (high-level industry showcase, no
-      // Codebeamer wizard chrome) or "product" (the existing 5-step wizard).
-      // Click on an industry tile from management view pre-selects the domain
-      // and flips to product view at Step 0.
-      const [view, setView] = useState("product");
+      // App router: "landing" (marketing overview for the tool — features,
+      // workflow, capabilities, limitations — used to walk a room through
+      // what the generator does) or "tool" (the existing 5-step wizard).
+      // Defaults to landing so first-time visitors see the marketing pitch
+      // before they touch the wizard. The wizard header has a small
+      // "← About this tool" link to return to the landing page at any time.
+      const [appView, setAppView] = useState("landing");
 
       // Phase 2 — Step 4 tab structure: which group of summary content to show
       const [summaryTab, setSummaryTab] = useState("projects");
@@ -1951,28 +2201,22 @@ CONTENT QUALITY RULES:
             <div style={{ fontSize:13, color:"var(--text-secondary)", marginTop:6, lineHeight:1.5 }}>
               Pick a customer domain <span style={{ color:"var(--ptc-green)", fontWeight:600 }}>→</span> AI drafts the plan <span style={{ color:"var(--ptc-green)", fontWeight:600 }}>→</span> the wizard provisions a complete 4-tier stream hierarchy with projects, requirements, test cases, and traceability into your Codebeamer instance.
             </div>
-            {/* Phase 2 — view router: segmented pill switches between the
-                Management showcase landing page and the Product wizard. */}
-            <div style={{ display:"flex", justifyContent:"flex-start", marginTop:12 }}>
-              <div style={{ display:"inline-flex", padding:3, borderRadius:8, background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)" }}>
-                {[
-                  { v:"management", label:"Management view" },
-                  { v:"product",    label:"Product view" },
-                ].map(opt => (
-                  <span key={opt.v}
-                    className="smooth-hover"
-                    onClick={() => setView(opt.v)}
-                    style={{
-                      padding:"6px 14px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
-                      background: view === opt.v ? "var(--ptc-green)" : "transparent",
-                      color: view === opt.v ? "var(--ptc-white)" : "var(--text-secondary)",
-                    }}>
-                    {opt.label}
-                  </span>
-                ))}
+            {/* Small "About this tool" link — visible only inside the wizard,
+                hidden on the landing page. Lets a consultant flip back to the
+                marketing overview mid-session without losing wizard state. */}
+            {appView === "tool" && (
+              <div style={{ marginTop:10 }}>
+                <span
+                  className="smooth-hover"
+                  onClick={() => setAppView("landing")}
+                  onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+                  style={{ fontSize:12, color:"var(--ptc-green)", cursor:"pointer", fontWeight:500 }}>
+                  ← About this tool
+                </span>
               </div>
-            </div>
-            {view === "product" && <div style={{ marginTop:8, padding:"6px 12px",
+            )}
+            {appView === "tool" && <div style={{ marginTop:8, padding:"6px 12px",
               background: DRY_RUN ? "#FEF3C7" : "#D1FAE5",
               border: `1px solid ${DRY_RUN ? "#F59E0B" : "#10B981"}`,
               borderRadius:6, fontSize:12,
@@ -2003,23 +2247,15 @@ CONTENT QUALITY RULES:
           </div>
 
           {/* ══════════════════════════════════════════════════════════════
-              Phase 2 view router
+              App router — landing (marketing overview) vs tool (wizard)
               ══════════════════════════════════════════════════════════════ */}
-          {view === "management" && (
-            <ManagementView
-              onPick={(p) => {
-                // F-02 — wipe any in-flight wizard state before pre-selecting
-                // the new domain. Prevents the Step 4 tabs from showing the
-                // previous run's struct after a Management→tile re-entry.
-                resetWizardState();
-                setProduct(p);
-                setView("product");
-              }}
-              onSwitchToProduct={() => setView("product")}
+          {appView === "landing" && (
+            <LandingPage
+              onLaunch={() => setAppView("tool")}
             />
           )}
 
-          {view === "product" && <>
+          {appView === "tool" && <>
           <div className="no-print"><StepBar current={step} /></div>
 
           {/* ══ Step 0: Product Selection ════════════════════════════ */}
