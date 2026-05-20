@@ -7,22 +7,38 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <!-- PTC corporate font (Raleway) — Phase 1 brand layer -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-primary: #ffffff;
-      --bg-secondary: #f8f9fa;
-      --bg-tertiary: #e9ecef;
-      --bg-danger: #fff5f5;
-      --text-primary: #212529;
-      --text-secondary: #6c757d;
-      --text-tertiary: #adb5bd;
-      --text-danger: #dc3545;
-      --border-primary: #212529;
-      --border-secondary: #dee2e6;
-      --border-tertiary: #e9ecef;
-      --border-danger: #f5c6cb;
-      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --accent: #1D9E75;
+      /* ── PTC brand palette (June 2023 corporate template) ── */
+      --ptc-green:  #40AA1D;  /* primary brand — CTAs, success, library tier */
+      --ptc-forest: #26481F;  /* dark green — hover state on green */
+      --ptc-navy:   #1D496E;  /* product line tier, secondary headings */
+      --ptc-blue:   #197BC0;  /* links, release tier */
+      --ptc-orange: #EB6D00;  /* warning accent (rare) */
+      --ptc-slate:  #617480;  /* secondary text, transform tier */
+      --ptc-dark:   #3D4647;  /* primary body text */
+      --ptc-grey:   #C8C9C7;  /* borders, dividers */
+      --ptc-white:  #FFFFFF;  /* background */
+
+      /* ── Semantic tokens (mapped to PTC palette) ── */
+      --bg-primary:      var(--ptc-white);
+      --bg-secondary:    #F5F7F4;             /* faintly green-tinted off-white */
+      --bg-tertiary:     #ECEEEB;             /* slightly cooler */
+      --bg-danger:       #FFF5F5;
+      --text-primary:    var(--ptc-dark);
+      --text-secondary:  var(--ptc-slate);
+      --text-tertiary:   var(--ptc-grey);
+      --text-danger:     #C0392B;
+      --border-primary:  var(--ptc-dark);
+      --border-secondary: var(--ptc-grey);
+      --border-tertiary:  #E5E7E4;
+      --border-danger:   #F5C6CB;
+      --font-sans:       "Raleway", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --accent:          var(--ptc-green);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -75,11 +91,16 @@
       { id:"adas", emoji:"🚗", label:"ADAS Systems",         domain:"Advanced Driver Assistance Systems (ADAS/AD)",     industry:"Automotive / Safety-Critical" },
     ];
 
+    // Tier palette aligned to PTC June 2023 corporate brand:
+    //   Library  → PTC green   #40AA1D  (source-of-truth tier earns brand primary)
+    //   PL       → PTC navy    #1D496E  (platform stratum reads as "structural")
+    //   Transform → PTC slate  #617480  (intermediate staging — neutral tone)
+    //   Release  → PTC blue    #197BC0  (outcome / market-facing accent)
     const TIERS = [
-      { key:"library_streams",      label:"Library Streams",      short:"LIB", clr:"#0F6E56", bg:"#E1F5EE" },
-      { key:"product_line_streams", label:"Product Line Streams",  short:"PL",  clr:"#534AB7", bg:"#EEEDFE" },
-      { key:"transform_streams",    label:"Transform Streams",     short:"TR",  clr:"#854F0B", bg:"#FAEEDA" },
-      { key:"release_streams",      label:"Release Streams",       short:"REL", clr:"#185FA5", bg:"#E6F1FB" },
+      { key:"library_streams",      label:"Library Streams",      short:"LIB", clr:"#40AA1D", bg:"#E6F5E0" },
+      { key:"product_line_streams", label:"Product Line Streams",  short:"PL",  clr:"#1D496E", bg:"#E4ECF3" },
+      { key:"transform_streams",    label:"Transform Streams",     short:"TR",  clr:"#617480", bg:"#EBEEF0" },
+      { key:"release_streams",      label:"Release Streams",       short:"REL", clr:"#197BC0", bg:"#E1EEFA" },
     ];
 
     // ─── Styles ───────────────────────────────────────────────────────
@@ -89,11 +110,15 @@
       background:"var(--bg-primary)", fontSize:13,
       color:"var(--text-primary)", fontFamily:"var(--font-sans)",
     };
+    // Primary buttons now use PTC green per corporate brand (Phase 1 revamp).
+    // Hover state darkens to forest (#26481F) — applied inline via the helper
+    // since we keep inline styles only and don't introduce :hover stylesheets.
     const btnStyle = (primary) => ({
       padding:"9px 20px", borderRadius:8, fontSize:13, fontWeight:500,
-      cursor:"pointer", border:`1px solid ${primary ? "var(--border-primary)" : "var(--border-secondary)"}`,
-      background: primary ? "var(--text-primary)" : "var(--bg-primary)",
-      color: primary ? "var(--bg-primary)" : "var(--text-primary)",
+      cursor:"pointer", border:`1px solid ${primary ? "var(--ptc-green)" : "var(--border-secondary)"}`,
+      background: primary ? "var(--ptc-green)" : "var(--bg-primary)",
+      color: primary ? "var(--ptc-white)" : "var(--text-primary)",
+      fontFamily: "var(--font-sans)",
     });
     const btnDisabled = { ...btnStyle(true), opacity:0.35, cursor:"not-allowed" };
     const smallBtnStyle = (primary) => ({
@@ -144,9 +169,11 @@
             <div key={i} style={{ flex:1, textAlign:"center" }}>
               <div style={{
                 height:4, borderRadius:2, marginBottom:5,
-                background: i<current ? "#1D9E75" : i===current ? "var(--text-primary)" : "var(--bg-tertiary)",
+                // Completed steps fade to PTC green at 60%; active step is solid PTC green;
+                // future steps stay neutral grey. Replaces the old black-active accent.
+                background: i<current ? "rgba(64,170,29,0.55)" : i===current ? "var(--ptc-green)" : "var(--bg-tertiary)",
               }} />
-              <span style={{ fontSize:11, color: i<=current ? "var(--text-secondary)" : "var(--text-tertiary)" }}>{lbl}</span>
+              <span style={{ fontSize:11, fontWeight: i===current ? 600 : 400, color: i<=current ? "var(--text-secondary)" : "var(--text-tertiary)" }}>{lbl}</span>
             </div>
           ))}
         </div>
@@ -1594,8 +1621,12 @@ CONTENT QUALITY RULES:
       return (
         <div style={{ padding:"0.5rem 0" }}>
           <div className="no-print" style={{ marginBottom:24 }}>
-            <div style={{ fontSize:20, fontWeight:600, color:"var(--text-primary)" }}>
-              CB Demo Generator v4
+            {/* PTC logo lockup (Phase 1 brand layer) */}
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <img src="/assets/ptc-logo.png" alt="PTC" style={{ height:28, width:"auto", display:"block" }} />
+              <div style={{ fontSize:20, fontWeight:600, color:"var(--text-primary)" }}>
+                CB Demo Generator v4
+              </div>
             </div>
             <div style={{ fontSize:13, color:"var(--text-secondary)", marginTop:4 }}>
               AI-powered Codebeamer ALM demo provisioning &middot; Local server mode
@@ -2481,6 +2512,7 @@ CONTENT QUALITY RULES:
 
             // Trailing icon link — opens in new tab, swallows row-click so the
             // expand/collapse caret on the parent row doesn't fire.
+            // Hover: tint to PTC blue (corporate accent for links).
             const ExtLink = ({ href, title }) => href ? (
               <a href={href} target="_blank" rel="noopener noreferrer" title={title}
                 onClick={(e) => e.stopPropagation()}
@@ -2488,13 +2520,14 @@ CONTENT QUALITY RULES:
                   fontSize: 12, color: "var(--text-tertiary)", textDecoration: "none",
                   padding: "0 4px", lineHeight: 1, cursor: "pointer",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--ptc-blue)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-tertiary)"; }}>
                 ↗
               </a>
             ) : null;
 
-            // Inline ID anchor — same color as the existing "id N" text, underline-on-hover.
+            // Inline ID anchor — same color as the existing "id N" text,
+            // underline + PTC blue on hover (corporate link accent).
             const IdLink = ({ href, label }) => href ? (
               <a href={href} target="_blank" rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
@@ -2502,8 +2535,14 @@ CONTENT QUALITY RULES:
                   color: "var(--text-tertiary)", fontFamily: "monospace", fontSize: 11,
                   textDecoration: "none", cursor: "pointer",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}>
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.textDecoration = "underline";
+                  e.currentTarget.style.color = "var(--ptc-blue)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.textDecoration = "none";
+                  e.currentTarget.style.color = "var(--text-tertiary)";
+                }}>
                 {label}
               </a>
             ) : (
