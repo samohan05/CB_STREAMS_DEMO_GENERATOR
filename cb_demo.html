@@ -50,6 +50,30 @@
     }
     #root { max-width: 740px; width: 100%; }
 
+    /* ── Heartbeat animation for the Codebeamer logo while generating ── */
+    /* Two quick pulses followed by a longer rest — mimics a cardiac rhythm.
+       Applied via the .logo-pulse class only while the OpenAI generation is
+       in flight. Reduced-motion users get a single gentle fade instead. */
+    @keyframes heartbeat {
+      0%, 100% { transform: scale(1); }
+      14%       { transform: scale(1.16); }
+      28%       { transform: scale(1); }
+      42%       { transform: scale(1.16); }
+      70%       { transform: scale(1); }
+    }
+    @keyframes logo-fade {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.55; }
+    }
+    .logo-pulse {
+      animation: heartbeat 1.4s ease-in-out infinite;
+      transform-origin: center center;
+      will-change: transform;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .logo-pulse { animation: logo-fade 1.6s ease-in-out infinite; }
+    }
+
     /* ── Print stylesheet — only Step 4 Summary is printed ── */
     @media print {
       body { padding: 0; display: block; }
@@ -1623,7 +1647,18 @@ CONTENT QUALITY RULES:
           <div className="no-print" style={{ marginBottom:24 }}>
             {/* PTC logo lockup (Phase 1 brand layer) */}
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <img src="/assets/ptc-logo.png" alt="PTC" style={{ height:28, width:"auto", display:"block" }} />
+              {/* Codebeamer logo — drop the actual file at assets/codebeamer-logo.png
+                  and it will appear automatically. Until then, the onError handler
+                  falls back to the PTC corporate mark so the header isn't empty.
+                  The .logo-pulse class is applied only while AI generation is in
+                  flight, giving a cardiac-rhythm heartbeat (see @keyframes heartbeat). */}
+              <img
+                src="/assets/codebeamer-logo.png"
+                onError={(e) => { if (e.currentTarget.src.indexOf("ptc-logo") === -1) e.currentTarget.src = "/assets/ptc-logo.png"; }}
+                alt="Codebeamer"
+                className={generating ? "logo-pulse" : ""}
+                style={{ height:28, width:"auto", display:"block" }}
+              />
               <div style={{ fontSize:20, fontWeight:600, color:"var(--text-primary)" }}>
                 CB Demo Generator v4
               </div>
