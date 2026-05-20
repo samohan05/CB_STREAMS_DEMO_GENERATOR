@@ -229,6 +229,189 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // Phase 2 — MANAGEMENT VIEW
+    // High-level industry showcase. No wizard chrome. Picks an industry
+    // tile and flips to product view with the domain pre-selected.
+    // ═══════════════════════════════════════════════════════════════════
+    function ManagementView({ onPick, onSwitchToProduct }) {
+      return (
+        <div style={{ padding:"8px 0 24px 0" }}>
+          {/* Hero — uses the wordmark asset, not the icon */}
+          <div style={{
+            textAlign:"center", padding:"32px 16px 24px",
+            background:"linear-gradient(180deg, #F5F7F4 0%, #FFFFFF 100%)",
+            borderRadius:12, border:"1px solid var(--border-tertiary)",
+            marginBottom:24,
+          }}>
+            <img src="/assets/codebeamer-wordmark.png"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              alt="Codebeamer"
+              style={{ height:44, width:"auto", marginBottom:14, maxWidth:"80%" }}
+            />
+            <div style={{ fontSize:22, fontWeight:600, color:"var(--text-primary)", marginBottom:8, lineHeight:1.3 }}>
+              What does a Codebeamer ALM demo look like for your industry?
+            </div>
+            <div style={{ fontSize:14, color:"var(--text-secondary)", maxWidth:560, margin:"0 auto", lineHeight:1.6 }}>
+              A consultant-led walkthrough of a live, domain-specific Codebeamer environment — projects, requirements, traceability, and a complete 4-tier stream hierarchy. Built around your industry&apos;s standards and compliance reality.
+            </div>
+          </div>
+
+          <div style={{ fontSize:14, fontWeight:500, marginBottom:12, color:"var(--text-primary)" }}>
+            Pick an industry to see a tailored demo:
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:12, marginBottom:20 }}>
+            {PRODUCTS.map(p => (
+              <div key={p.id} onClick={() => onPick(p)}
+                style={{
+                  padding:"20px 14px", borderRadius:8, cursor:"pointer", textAlign:"center",
+                  border:"1.5px solid var(--border-tertiary)",
+                  background:"var(--bg-primary)",
+                  transition:"all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "var(--ptc-green)";
+                  e.currentTarget.style.background = "var(--bg-secondary)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border-tertiary)";
+                  e.currentTarget.style.background = "var(--bg-primary)";
+                }}>
+                <div style={{ fontSize:24, marginBottom:8 }}>{p.emoji}</div>
+                <div style={{ fontSize:12, fontWeight:500, color:"var(--text-primary)" }}>{p.label}</div>
+                <div style={{ fontSize:10, color:"var(--text-tertiary)", marginTop:4, lineHeight:1.3 }}>{p.industry}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{
+            textAlign:"center", marginTop:24, padding:"20px 16px",
+            background:"var(--bg-secondary)", borderRadius:8, fontSize:13, color:"var(--text-secondary)",
+          }}>
+            Or skip the industry showcase and use the wizard directly:&nbsp;
+            <span onClick={onSwitchToProduct}
+              style={{ color:"var(--ptc-green)", fontWeight:600, cursor:"pointer" }}>
+              Switch to Product view →
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 2 — LINEAGE DIAGRAM
+    // Simple SVG four-column tree (Library | PL | Transform | Release).
+    // Arrows only for stream-level parent_stream_key inheritance —
+    // Library→PL is per-project (shown in the Streams tab, not here).
+    // ═══════════════════════════════════════════════════════════════════
+    function LineageDiagram({ struct, streamIds, cbStreamUrl, TIERS }) {
+      if (!struct) return null;
+      const boxWidth = 140, boxHeight = 36, vGap = 12, topMargin = 44, colGap = 40;
+      const COLS = TIERS.map((t, i) => ({
+        key: t.key, label: t.label, clr: t.clr, bg: t.bg,
+        x: 30 + i * (boxWidth + colGap),
+        streams: struct[t.key] || [],
+      }));
+      const maxStreams = Math.max(...COLS.map(c => c.streams.length), 1);
+      const svgHeight = topMargin + maxStreams * (boxHeight + vGap) + 16;
+      const svgWidth = 30 + TIERS.length * (boxWidth + colGap) - colGap + 30;
+
+      // Compute box positions (vertically centered per column)
+      const layoutByKey = {};
+      COLS.forEach(col => {
+        const colHeight = col.streams.length * (boxHeight + vGap);
+        const totalHeight = maxStreams * (boxHeight + vGap);
+        const startY = topMargin + (totalHeight - colHeight) / 2;
+        col.streams.forEach((s, i) => {
+          layoutByKey[s.stream_key] = {
+            x: col.x, y: startY + i * (boxHeight + vGap),
+            clr: col.clr, bg: col.bg,
+          };
+        });
+      });
+
+      // Compute arrows for stream-level inheritance (Transform→PL, Release→Transform)
+      const arrows = [];
+      for (const t of TIERS) {
+        for (const s of (struct[t.key] || [])) {
+          if (s.parent_stream_key && layoutByKey[s.parent_stream_key]) {
+            const parent = layoutByKey[s.parent_stream_key];
+            const child = layoutByKey[s.stream_key];
+            arrows.push({
+              x1: parent.x + boxWidth, y1: parent.y + boxHeight/2,
+              x2: child.x, y2: child.y + boxHeight/2,
+            });
+          }
+        }
+      }
+
+      if (COLS.every(c => c.streams.length === 0)) {
+        return <div style={{ padding:24, textAlign:"center", color:"var(--text-tertiary)", fontSize:13 }}>
+          No streams defined in the generated structure yet.
+        </div>;
+      }
+
+      // Brand-token color resolution for SVG. Reads at render time so
+      // dark-mode (if added later) and any token re-theme propagate here too.
+      const RALEWAY_STACK = "Raleway, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+      const hasAnySid = Object.values(streamIds || {}).some(Boolean);
+
+      return (
+        <div style={{ overflowX:"auto", padding:"4px 0 8px", color:"var(--text-tertiary)" }}>
+          <svg width={svgWidth} height={svgHeight} style={{ display:"block", margin:"0 auto", fontFamily: RALEWAY_STACK }}>
+            <defs>
+              {/* Arrow marker uses currentColor so the parent <div>'s text-tertiary
+                  token drives both the polygon fill and the line stroke. */}
+              <marker id="lineageArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                <polygon points="0 0, 8 4, 0 8" fill="currentColor" />
+              </marker>
+            </defs>
+            {/* Column headers */}
+            {COLS.map(col => (
+              <text key={col.key} x={col.x + boxWidth/2} y={26} fontSize="10" fontWeight="600"
+                textAnchor="middle" fill={col.clr} fontFamily={RALEWAY_STACK} style={{ letterSpacing:0.6 }}>
+                {col.label.toUpperCase()}
+              </text>
+            ))}
+            {/* Arrows behind boxes so they appear connected */}
+            {arrows.map((a, i) => (
+              <line key={i} x1={a.x1} y1={a.y1} x2={a.x2 - 4} y2={a.y2}
+                stroke="currentColor" strokeWidth="1.5" markerEnd="url(#lineageArrow)" />
+            ))}
+            {/* Boxes */}
+            {COLS.flatMap(col => col.streams.map(s => {
+              const layout = layoutByKey[s.stream_key];
+              const sid = streamIds[s.stream_key];
+              const url = cbStreamUrl ? cbStreamUrl(sid) : null;
+              const name = s.stream_name || s.stream_key;
+              const truncated = name.length > 22 ? name.substring(0, 21) + "…" : name;
+              const box = (
+                <g key={s.stream_key} transform={`translate(${layout.x}, ${layout.y})`}>
+                  {/* Native SVG tooltip — full untruncated stream name on hover */}
+                  <title>{name}{sid ? ` · id ${sid}` : ""}</title>
+                  <rect width={boxWidth} height={boxHeight} rx="6"
+                    fill={layout.bg} stroke={layout.clr} strokeWidth="1.5" />
+                  <text x={boxWidth/2} y={15} fontSize="10" textAnchor="middle"
+                    fill={layout.clr} fontFamily={RALEWAY_STACK} fontWeight="600">{truncated}</text>
+                  <text x={boxWidth/2} y={28} fontSize="9" textAnchor="middle"
+                    fill="var(--text-tertiary)" fontFamily="ui-monospace, Consolas, monospace">{sid ? `id ${sid}` : "—"}</text>
+                </g>
+              );
+              return url ? (
+                <a key={s.stream_key} href={url} target="_blank" rel="noopener noreferrer"
+                  style={{ cursor:"pointer" }}>{box}</a>
+              ) : box;
+            }))}
+          </svg>
+          <div style={{ fontSize:11, color:"var(--text-tertiary)", textAlign:"center", marginTop:6, fontStyle:"italic" }}>
+            Arrows show stream-level inheritance (Transform → PL parent · Release → Transform parent).
+            Library → PL lineage is per-project — see the Streams tab for per-project source mapping.
+            {!hasAnySid && <> · <span style={{ color:"var(--ptc-orange)" }}>Dry run — IDs not yet assigned.</span></>}
+          </div>
+        </div>
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // MAIN APP
     // ═══════════════════════════════════════════════════════════════════
     function App() {
@@ -236,6 +419,20 @@
       const [dryRun, setDryRun] = useState(true);
       // Alias for easy reference throughout
       const DRY_RUN = dryRun;
+
+      // Phase 2 — view router: "management" (high-level industry showcase, no
+      // Codebeamer wizard chrome) or "product" (the existing 5-step wizard).
+      // Click on an industry tile from management view pre-selects the domain
+      // and flips to product view at Step 0.
+      const [view, setView] = useState("product");
+
+      // Phase 2 — Step 4 tab structure: which group of summary content to show
+      const [summaryTab, setSummaryTab] = useState("projects");
+
+      // Phase 2 — when true, every Step 4 tab section renders simultaneously.
+      // Flipped on during Print so all three tabs (Projects/Streams/Lineage)
+      // appear in the printout / Save-as-PDF; restored after the dialog.
+      const [printAll, setPrintAll] = useState(false);
 
       // Step 0: Product selection
       const [product, setProduct] = useState(null);
@@ -313,6 +510,37 @@
       const [cleanupBusy, setCleanupBusy] = useState(false);
       const [cleanupPreview, setCleanupPreview] = useState(null); // {projects:[], streams:[]}
       const [cleanupResult, setCleanupResult] = useState(null);   // post-delete summary
+
+      // Phase 2 — central wizard reset.
+      // Called from "Start New Demo" and from the Management-view tile click
+      // path (so a consultant peeking at the showcase mid-run can't accidentally
+      // re-enter the wizard with the previous domain's struct still loaded).
+      // QA V-03/V-04/V-06: also clears category refs, initialStreamId, and
+      // refreshes the session prefix so back-to-back demos don't share a tag.
+      const resetWizardState = () => {
+        setStep(0);
+        setStruct(null);
+        setErr("");
+        setProjectStatus({}); setProjectIds({}); setProjectTrackers({}); setProjectErrors({});
+        setReqStatus({}); setReqErrors({}); setReqCounts({});
+        setProjectArtifacts({});
+        setStreamStatus({}); setStreamProgress({}); setStreamIds({}); setStreamErrors({});
+        setInitialStreamId(null);
+        setAbortMode(false);
+        setSummaryExpanded({}); setSummaryAllExpanded(false);
+        setSummaryTab("projects");
+        setPrintAll(false);
+        setGeneratedAt(null);
+        setCleanupPreview(null); setCleanupResult(null);
+        streamIdsRef.current = {};
+        // CB category refs — declared lower in App(), but reset only fires
+        // from user events (after first render), so closures are bound.
+        cbCategoryNameRef.current = null;
+        categoryCreated.current = false;
+        // Refresh the per-session prefix so cleanup-by-prefix doesn't merge
+        // a previous demo with a fresh one in the same browser tab.
+        setSessionPrefix(buildSessionPrefix());
+      };
 
       // CB silently sanitizes special chars in category names (e.g.
       // "ADAS/AD" → "ADAS-AD"). After ensureCategoryExists, this ref
@@ -1678,7 +1906,27 @@ CONTENT QUALITY RULES:
             <div style={{ fontSize:13, color:"var(--text-secondary)", marginTop:6, lineHeight:1.5 }}>
               Pick a customer domain <span style={{ color:"var(--ptc-green)", fontWeight:600 }}>→</span> AI drafts the plan <span style={{ color:"var(--ptc-green)", fontWeight:600 }}>→</span> the wizard provisions a complete 4-tier stream hierarchy with projects, requirements, test cases, and traceability into your Codebeamer instance.
             </div>
-            <div style={{ marginTop:8, padding:"6px 12px",
+            {/* Phase 2 — view router: segmented pill switches between the
+                Management showcase landing page and the Product wizard. */}
+            <div style={{ display:"flex", justifyContent:"flex-start", marginTop:12 }}>
+              <div style={{ display:"inline-flex", padding:3, borderRadius:8, background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)" }}>
+                {[
+                  { v:"management", label:"Management view" },
+                  { v:"product",    label:"Product view" },
+                ].map(opt => (
+                  <span key={opt.v}
+                    onClick={() => setView(opt.v)}
+                    style={{
+                      padding:"6px 14px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
+                      background: view === opt.v ? "var(--ptc-green)" : "transparent",
+                      color: view === opt.v ? "var(--ptc-white)" : "var(--text-secondary)",
+                    }}>
+                    {opt.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {view === "product" && <div style={{ marginTop:8, padding:"6px 12px",
               background: DRY_RUN ? "#FEF3C7" : "#D1FAE5",
               border: `1px solid ${DRY_RUN ? "#F59E0B" : "#10B981"}`,
               borderRadius:6, fontSize:12,
@@ -1705,9 +1953,27 @@ CONTENT QUALITY RULES:
                   style={{ width:16, height:16, cursor: struct ? "not-allowed" : "pointer" }}
                 />
               </label>
-            </div>
+            </div>}
           </div>
 
+          {/* ══════════════════════════════════════════════════════════════
+              Phase 2 view router
+              ══════════════════════════════════════════════════════════════ */}
+          {view === "management" && (
+            <ManagementView
+              onPick={(p) => {
+                // F-02 — wipe any in-flight wizard state before pre-selecting
+                // the new domain. Prevents the Step 4 tabs from showing the
+                // previous run's struct after a Management→tile re-entry.
+                resetWizardState();
+                setProduct(p);
+                setView("product");
+              }}
+              onSwitchToProduct={() => setView("product")}
+            />
+          )}
+
+          {view === "product" && <>
           <div className="no-print"><StepBar current={step} /></div>
 
           {/* ══ Step 0: Product Selection ════════════════════════════ */}
@@ -2807,14 +3073,18 @@ ${streamSections}
             // Flip summaryAllExpanded → wait for React to repaint → print →
             // restore the previous toggle state after the dialog closes.
             const printSummary = () => {
-              const prev = summaryAllExpanded;
+              const prevExpanded = summaryAllExpanded;
               setSummaryAllExpanded(true);
+              setPrintAll(true);  // Force-render all three tabs (Projects/Streams/Lineage)
               setTimeout(() => {
                 window.print();
                 // window.print() blocks until the dialog is dismissed in most
                 // browsers; restore after a tick so we don't snap closed
                 // before the dialog renders.
-                setTimeout(() => setSummaryAllExpanded(prev), 0);
+                setTimeout(() => {
+                  setSummaryAllExpanded(prevExpanded);
+                  setPrintAll(false);
+                }, 0);
               }, 150);
             };
 
@@ -2875,27 +3145,53 @@ ${streamSections}
                 <Stat value={TIERS.reduce((a,t) => a + (struct[t.key]||[]).length, 0)} label="Streams" color="#0F6E56" />
               </div>
 
-              {/* Expand toggle — segmented chip */}
-              <div className="no-print" style={{ display:"flex", justifyContent:"center", marginBottom:18 }}>
+              {/* Consolidated Step 4 control row — tabs (primary nav, PTC green active)
+                  on the left, Expand/Collapse (secondary, neutral active) on the right.
+                  Expand chip is hidden on the Lineage tab (no expand semantics there). */}
+              <div className="no-print" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18, gap:12, flexWrap:"wrap" }}>
+                {/* Tabs — primary navigation */}
                 <div style={{ display:"inline-flex", padding:3, borderRadius:8, background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)" }}>
                   {[
-                    { v:false, label:"▶  Collapsed" },
-                    { v:true,  label:"▼  Expanded" },
+                    { v:"projects", label:"Projects" },
+                    { v:"streams",  label:"Streams" },
+                    { v:"lineage",  label:"Lineage" },
                   ].map(opt => (
-                    <span key={String(opt.v)}
-                      onClick={() => setSummaryAllExpanded(opt.v)}
+                    <span key={opt.v}
+                      onClick={() => setSummaryTab(opt.v)}
                       style={{
-                        padding:"6px 14px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
-                        background: summaryAllExpanded === opt.v ? "var(--text-primary)" : "transparent",
-                        color: summaryAllExpanded === opt.v ? "var(--bg-primary)" : "var(--text-secondary)",
+                        padding:"6px 18px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
+                        background: summaryTab === opt.v ? "var(--accent)" : "transparent",
+                        color: summaryTab === opt.v ? "#FFFFFF" : "var(--text-secondary)",
                       }}>
                       {opt.label}
                     </span>
                   ))}
                 </div>
+
+                {/* Expand/Collapse — secondary, only relevant for Projects/Streams */}
+                {summaryTab !== "lineage" && (
+                  <div style={{ display:"inline-flex", padding:3, borderRadius:8, background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)" }}>
+                    {[
+                      { v:false, label:"▶  Collapsed" },
+                      { v:true,  label:"▼  Expanded" },
+                    ].map(opt => (
+                      <span key={String(opt.v)}
+                        onClick={() => setSummaryAllExpanded(opt.v)}
+                        style={{
+                          padding:"6px 14px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
+                          background: summaryAllExpanded === opt.v ? "var(--bg-primary)" : "transparent",
+                          color: summaryAllExpanded === opt.v ? "var(--text-primary)" : "var(--text-secondary)",
+                          border: summaryAllExpanded === opt.v ? "1px solid var(--border-secondary)" : "1px solid transparent",
+                        }}>
+                        {opt.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {/* ── Projects ── */}
+              {/* ── Projects tab ── */}
+              {(summaryTab === "projects" || printAll) && (<>
               <div style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>Projects</div>
               <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:24 }}>
                 {struct.projects.map((p, i) => {
@@ -2990,8 +3286,10 @@ ${streamSections}
                   );
                 })}
               </div>
+              </>)}
 
-              {/* ── Streams ── */}
+              {/* ── Streams tab ── */}
+              {(summaryTab === "streams" || printAll) && (<>
               {TIERS.map(tier => {
                 const streams = struct[tier.key] || [];
                 if (!streams.length) return null;
@@ -3066,6 +3364,12 @@ ${streamSections}
                   </div>
                 );
               })}
+              </>)}
+
+              {/* ── Lineage tab ── */}
+              {(summaryTab === "lineage" || printAll) && (
+                <LineageDiagram struct={struct} streamIds={streamIds} cbStreamUrl={cbStreamUrl} TIERS={TIERS} />
+              )}
 
               {/* Next steps */}
               <div className="no-print" style={{ marginTop:6, padding:"12px 14px", background:"var(--bg-secondary)",
@@ -3153,15 +3457,13 @@ ${streamSections}
                 )}
               </div>
 
-              <button className="no-print" style={{...btnStyle(false), marginTop:16}} onClick={() => {
-                setStep(0); setStruct(null); streamIdsRef.current = {};
-                setProjectArtifacts({}); setSummaryExpanded({}); setSummaryAllExpanded(false); setAbortMode(false);
-              }}>
+              <button className="no-print" style={{...btnStyle(false), marginTop:16}} onClick={resetWizardState}>
                 Start New Demo
               </button>
             </div>
             );
           })()}
+          </>}
         </div>
       );
     }
