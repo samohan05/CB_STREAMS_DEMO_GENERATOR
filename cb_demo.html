@@ -74,6 +74,24 @@
       .logo-pulse { animation: logo-fade 1.6s ease-in-out infinite; }
     }
 
+    /* ── Phase 3 motion polish ──────────────────────────────────────────
+       Subtle entrance for tab content and view-router targets. Short,
+       opt-in, GPU-friendly — no layout thrash. Respects prefers-reduced-motion. */
+    @keyframes phase3-fade-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in     { animation: phase3-fade-in 220ms ease-out both; }
+    .fade-in-sm  { animation: phase3-fade-in 160ms ease-out both; }
+
+    /* Smooth hover transitions on interactive pills and cards. */
+    .smooth-hover { transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .fade-in, .fade-in-sm { animation: none; }
+      .smooth-hover { transition: none; }
+    }
+
     /* ── Print stylesheet — only Step 4 Summary is printed ── */
     @media print {
       body { padding: 0; display: block; }
@@ -235,7 +253,7 @@
     // ═══════════════════════════════════════════════════════════════════
     function ManagementView({ onPick, onSwitchToProduct }) {
       return (
-        <div style={{ padding:"8px 0 24px 0" }}>
+        <div className="fade-in" style={{ padding:"8px 0 24px 0" }}>
           {/* Hero — uses the wordmark asset, not the icon */}
           <div style={{
             textAlign:"center", padding:"32px 16px 24px",
@@ -434,6 +452,13 @@
       // appear in the printout / Save-as-PDF; restored after the dialog.
       const [printAll, setPrintAll] = useState(false);
 
+      // Phase 3 — Step 4 filter pane. Empty query / empty tier set = "show all".
+      // Active state surfaces on Projects and Streams tabs; Lineage already
+      // shows the full topology visually and is not filtered.
+      const [filterQuery, setFilterQuery] = useState("");
+      const [filterTiers, setFilterTiers] = useState([]);  // tier.key values, multi-select
+      const [groupProjectsByTier, setGroupProjectsByTier] = useState(false);
+
       // Step 0: Product selection
       const [product, setProduct] = useState(null);
       const [customDomain, setCustomDomain] = useState("");
@@ -521,6 +546,12 @@
         setStep(0);
         setStruct(null);
         setErr("");
+        // V-05 — clear in-flight flags so a reset triggered mid-generation
+        // (or from Management→tile while a "Create All" is queued) doesn't
+        // leave orphaned spinners or block subsequent runs.
+        setGenerating(false);
+        setCreatingAllProjects(false); setCreatingAllReqs(false); setCreatingAllStreams(false);
+        setGenStage("");
         setProjectStatus({}); setProjectIds({}); setProjectTrackers({}); setProjectErrors({});
         setReqStatus({}); setReqErrors({}); setReqCounts({});
         setProjectArtifacts({});
@@ -530,6 +561,7 @@
         setSummaryExpanded({}); setSummaryAllExpanded(false);
         setSummaryTab("projects");
         setPrintAll(false);
+        setFilterQuery(""); setFilterTiers([]); setGroupProjectsByTier(false);
         setGeneratedAt(null);
         setCleanupPreview(null); setCleanupResult(null);
         streamIdsRef.current = {};
@@ -566,13 +598,14 @@
           // Projects in this category (dry-run)
           const pRes = await fetch("/api/cleanup/projects", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...cbCredHeaders() },
             body: JSON.stringify({ category: cleanupCategory, dry_run: true }),
           }).then(r => r.json());
           // Streams matching this run's prefix (read-only listing)
           const sRes = sessionPrefix
-            ? await fetch(`/api/cleanup/streams?prefix=${encodeURIComponent(sessionPrefix)}`)
-                .then(r => r.json())
+            ? await fetch(`/api/cleanup/streams?prefix=${encodeURIComponent(sessionPrefix)}`, {
+                headers: { ...cbCredHeaders() },
+              }).then(r => r.json())
             : { count: 0, streams: [] };
           setCleanupPreview({ projects: pRes.projects || [], streams: sRes.streams || [] });
         } catch(e) {
@@ -590,7 +623,7 @@
         try {
           const r = await fetch("/api/cleanup/projects", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...cbCredHeaders() },
             body: JSON.stringify({ category: cleanupCategory, dry_run: false }),
           }).then(r => r.json());
           setCleanupResult(r);
@@ -1169,11 +1202,23 @@ CONTENT QUALITY RULES:
       };
 
       // ── CB API Helpers (through local proxy) ─────────────────────────
+      // Phase 3 bug fix: forward any UI-edited CB URL / user / password to
+      // the Flask proxy via X-CB-* headers. The server falls back to its
+      // .env values when the headers are absent or empty. Previously edits
+      // to the UI fields were cosmetic — the proxy always used .env.
+      const cbCredHeaders = () => {
+        const h = {};
+        if (cbUrl  && cbUrl.trim())  h["X-CB-Url"]  = cbUrl.trim();
+        if (cbUser && cbUser.trim()) h["X-CB-User"] = cbUser.trim();
+        if (cbPass) h["X-CB-Pass"] = cbPass;
+        return h;
+      };
+
       const cbFetch = async (method, path, body = null) => {
         const url = `/api/cb/v3/${path.replace(/^\/cb\/api\/v3\//, "").replace(/^\//, "")}`;
         const opts = {
           method,
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          headers: { "Content-Type": "application/json", "Accept": "application/json", ...cbCredHeaders() },
         };
         if (body) opts.body = JSON.stringify(body);
         const r = await fetch(url, opts);
@@ -1194,7 +1239,7 @@ CONTENT QUALITY RULES:
         const url = `/api/cb/v1/${path.replace(/^\//, "")}`;
         const opts = {
           method,
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          headers: { "Content-Type": "application/json", "Accept": "application/json", ...cbCredHeaders() },
         };
         if (body) opts.body = JSON.stringify(body);
         const r = await fetch(url, opts);
@@ -1225,7 +1270,7 @@ CONTENT QUALITY RULES:
         try {
           const catResp = await fetch("/api/cb/api/projects/category", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            headers: { "Content-Type": "application/json", "Accept": "application/json", ...cbCredHeaders() },
             body: JSON.stringify({ categoryName: categoryNameIntent }),
           });
           if (catResp.ok) {
@@ -1915,6 +1960,7 @@ CONTENT QUALITY RULES:
                   { v:"product",    label:"Product view" },
                 ].map(opt => (
                   <span key={opt.v}
+                    className="smooth-hover"
                     onClick={() => setView(opt.v)}
                     style={{
                       padding:"6px 14px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
@@ -2811,9 +2857,19 @@ CONTENT QUALITY RULES:
 
           {/* ══ Step 4: Summary v2 ════════════════════════════════════ */}
           {step === 4 && struct && (() => {
-            // Helpers — kept local to Step 4 render
-            const isOpen = (key) => summaryAllExpanded || !!summaryExpanded[key];
-            const toggleOpen = (key) => setSummaryExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+            // Helpers — kept local to Step 4 render.
+            // Phase 3 bug fix: precedence is "per-card override (if set) wins,
+            // otherwise fall back to the global default". The previous
+            // `summaryAllExpanded || !!summaryExpanded[key]` was OR-logic and
+            // could not represent the state "globally expanded but this card
+            // manually collapsed" — flipping the chip didn't actually collapse
+            // cards the user had individually expanded. The chip handler now
+            // also clears the per-card override map so a global flip wins.
+            const isOpen = (key) =>
+              Object.prototype.hasOwnProperty.call(summaryExpanded, key)
+                ? !!summaryExpanded[key]
+                : summaryAllExpanded;
+            const toggleOpen = (key) => setSummaryExpanded(prev => ({ ...prev, [key]: !isOpen(key) }));
             const tierByKey = TIERS.reduce((acc,t)=>{ acc[t.key]=t; return acc; }, {});
 
             // ─── CB deep-link helpers ─────────────────────────────────
@@ -3078,13 +3134,16 @@ ${streamSections}
               setPrintAll(true);  // Force-render all three tabs (Projects/Streams/Lineage)
               setTimeout(() => {
                 window.print();
-                // window.print() blocks until the dialog is dismissed in most
-                // browsers; restore after a tick so we don't snap closed
-                // before the dialog renders.
+                // V-07 — window.print() is synchronous in Chromium/Firefox
+                // (returns after dialog dismissal) but async in Safari (the
+                // preview opens in a separate UI thread). A 0-ms restore
+                // would collapse tabs before the user clicks Save in Safari.
+                // 600ms is enough for the preview to capture the full layout
+                // and short enough that a Chromium user doesn't see a flash.
                 setTimeout(() => {
                   setSummaryAllExpanded(prevExpanded);
                   setPrintAll(false);
-                }, 0);
+                }, 600);
               }, 150);
             };
 
@@ -3157,6 +3216,7 @@ ${streamSections}
                     { v:"lineage",  label:"Lineage" },
                   ].map(opt => (
                     <span key={opt.v}
+                      className="smooth-hover"
                       onClick={() => setSummaryTab(opt.v)}
                       style={{
                         padding:"6px 18px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
@@ -3168,7 +3228,22 @@ ${streamSections}
                   ))}
                 </div>
 
-                {/* Expand/Collapse — secondary, only relevant for Projects/Streams */}
+                {/* Right-side cluster — Group-by-tier (Projects only) + Expand/Collapse */}
+                <div style={{ display:"inline-flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                {summaryTab === "projects" && (
+                  <span
+                    className="smooth-hover"
+                    onClick={() => setGroupProjectsByTier(v => !v)}
+                    title="Group projects by tier (Library / Product Line / Release)"
+                    style={{
+                      padding:"6px 12px", fontSize:11, fontWeight:500, borderRadius:6, cursor:"pointer",
+                      border:`1px solid ${groupProjectsByTier ? "var(--accent)" : "var(--border-secondary)"}`,
+                      background:"var(--bg-primary)",
+                      color: groupProjectsByTier ? "var(--accent)" : "var(--text-secondary)",
+                    }}>
+                    {groupProjectsByTier ? "▣ Grouped by tier" : "▢ Group by tier"}
+                  </span>
+                )}
                 {summaryTab !== "lineage" && (
                   <div style={{ display:"inline-flex", padding:3, borderRadius:8, background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)" }}>
                     {[
@@ -3176,7 +3251,8 @@ ${streamSections}
                       { v:true,  label:"▼  Expanded" },
                     ].map(opt => (
                       <span key={String(opt.v)}
-                        onClick={() => setSummaryAllExpanded(opt.v)}
+                        className="smooth-hover"
+                        onClick={() => { setSummaryAllExpanded(opt.v); setSummaryExpanded({}); }}
                         style={{
                           padding:"6px 14px", fontSize:12, fontWeight:500, borderRadius:6, cursor:"pointer",
                           background: summaryAllExpanded === opt.v ? "var(--bg-primary)" : "transparent",
@@ -3188,16 +3264,94 @@ ${streamSections}
                     ))}
                   </div>
                 )}
+                </div>
               </div>
 
+              {/* Phase 3 — filter band. Hidden on Lineage (visual already shows all),
+                  hidden in print mode (filters are for live triage, not for the PDF). */}
+              {summaryTab !== "lineage" && !printAll && (
+                <div className="no-print" style={{
+                  marginBottom:14, padding:"10px 12px", borderRadius:8,
+                  background:"var(--bg-secondary)", border:"1px solid var(--border-secondary)",
+                  display:"flex", flexWrap:"wrap", gap:10, alignItems:"center",
+                }}>
+                  <span style={{ fontSize:10, fontWeight:600, color:"var(--text-tertiary)", textTransform:"uppercase", letterSpacing:0.6 }}>Filter</span>
+                  <input
+                    type="text"
+                    value={filterQuery}
+                    onChange={(e) => setFilterQuery(e.target.value)}
+                    placeholder={summaryTab === "projects" ? "Filter projects by name…" : "Filter streams by name…"}
+                    style={{
+                      flex:"1 1 200px", minWidth:160, padding:"6px 10px", fontSize:12,
+                      borderRadius:6, border:"1px solid var(--border-secondary)",
+                      background:"var(--bg-primary)", color:"var(--text-primary)", outline:"none",
+                      fontFamily:"inherit",
+                    }}
+                  />
+                  <div style={{ display:"inline-flex", gap:4, flexWrap:"wrap" }}>
+                    {TIERS.map(t => {
+                      const active = filterTiers.includes(t.key);
+                      return (
+                        <span key={t.key}
+                          className="smooth-hover"
+                          onClick={() => setFilterTiers(prev => active ? prev.filter(k => k !== t.key) : [...prev, t.key])}
+                          style={{
+                            // UI redline #1: active filter pill is a SOLID chip (tier colour
+                            // fill + white text) — visually distinct from the pale tier badge
+                            // rendered on each project card, so "selected filter" is unambiguous.
+                            padding:"4px 10px", fontSize:11, fontWeight:500, borderRadius:12, cursor:"pointer",
+                            border:`1px solid ${active ? t.clr : "var(--border-secondary)"}`,
+                            background: active ? t.clr : "var(--bg-primary)",
+                            color: active ? "#FFFFFF" : "var(--text-secondary)",
+                          }}>
+                          {active ? "✓ " : ""}{t.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {(filterQuery || filterTiers.length > 0) && (
+                    <span onClick={() => { setFilterQuery(""); setFilterTiers([]); }}
+                      onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+                      style={{ fontSize:11, color:"var(--ptc-green)", cursor:"pointer", fontWeight:500, marginLeft:"auto" }}>
+                      ✕ Clear filters
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* ── Projects tab ── */}
-              {(summaryTab === "projects" || printAll) && (<>
+              {(summaryTab === "projects" || printAll) && (
+              <div key="tab-projects" className="fade-in-sm">
               <div style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>Projects</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:24 }}>
-                {struct.projects.map((p, i) => {
-                  const open = isOpen(`proj-${i}`);
+              {(() => {
+                // Phase 3 — filter + optional grouping. printAll bypasses the
+                // filter so the PDF always shows the whole set.
+                const annotated = struct.projects.map((p, i) => {
                   const cat = p.category || "library";
                   const tier = cat === "release" ? TIERS[3] : cat === "product_line" ? TIERS[1] : TIERS[0];
+                  return { p, i, cat, tier };
+                });
+                const q = filterQuery.trim().toLowerCase();
+                const visible = printAll ? annotated : annotated.filter(it => {
+                  if (q && !(it.p.project_name || "").toLowerCase().includes(q)) return false;
+                  if (filterTiers.length > 0 && !filterTiers.includes(it.tier.key)) return false;
+                  return true;
+                });
+                if (visible.length === 0) {
+                  return (
+                    <div style={{ padding:"20px 14px", marginBottom:24, borderRadius:8, background:"var(--bg-secondary)", border:"1px dashed var(--border-secondary)", textAlign:"center", fontSize:13, color:"var(--text-tertiary)" }}>
+                      No projects match the current filter.{" "}
+                      <span onClick={() => { setFilterQuery(""); setFilterTiers([]); }}
+                        style={{ color:"var(--ptc-green)", cursor:"pointer", fontWeight:500 }}>
+                        Clear filters
+                      </span>
+                    </div>
+                  );
+                }
+                const renderCard = (it) => {
+                  const { p, i, cat, tier } = it;
+                  const open = isOpen(`proj-${i}`);
                   const arts = projectArtifacts[i];
                   const counts = reqCounts[i];
                   return (
@@ -3284,14 +3438,67 @@ ${streamSections}
                       )}
                     </div>
                   );
-                })}
+                };
+
+                // Render path: grouped-by-tier OR flat list
+                if (groupProjectsByTier) {
+                  const groups = TIERS
+                    .map(t => ({ tier: t, items: visible.filter(it => it.tier.key === t.key) }))
+                    .filter(g => g.items.length > 0);
+                  return (
+                    <div style={{ marginBottom:24 }}>
+                      {groups.map(g => (
+                        <div key={g.tier.key} style={{ marginBottom:14 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                            <span style={{ width:8, height:8, borderRadius:"50%", background:g.tier.clr }}></span>
+                            <span style={{ fontSize:13, fontWeight:600, color:"var(--text-primary)" }}>{g.tier.label}</span>
+                            <span style={{ fontSize:11, color:"var(--text-tertiary)" }}>({g.items.length})</span>
+                          </div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                            {g.items.map(renderCard)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:24 }}>
+                    {visible.map(renderCard)}
+                  </div>
+                );
+              })()}
               </div>
-              </>)}
+              )}
 
               {/* ── Streams tab ── */}
-              {(summaryTab === "streams" || printAll) && (<>
-              {TIERS.map(tier => {
-                const streams = struct[tier.key] || [];
+              {(summaryTab === "streams" || printAll) && (
+              <div key="tab-streams" className="fade-in-sm">
+              {(() => {
+                // Phase 3 — apply filter unless printing. Emit empty state when
+                // the filter matches nothing across all tiers so the user
+                // doesn't see a blank panel.
+                const q = filterQuery.trim().toLowerCase();
+                const tierVisible = printAll ? TIERS : TIERS.filter(t => filterTiers.length === 0 || filterTiers.includes(t.key));
+                const totalAfterFilter = tierVisible.reduce((acc, t) => {
+                  const all = struct[t.key] || [];
+                  const matched = (q && !printAll) ? all.filter(s => (s.stream_name || "").toLowerCase().includes(q)) : all;
+                  return acc + matched.length;
+                }, 0);
+                if (totalAfterFilter === 0 && !printAll && (q || filterTiers.length > 0)) {
+                  return (
+                    <div style={{ padding:"20px 14px", marginBottom:18, borderRadius:8, background:"var(--bg-secondary)", border:"1px dashed var(--border-secondary)", textAlign:"center", fontSize:13, color:"var(--text-tertiary)" }}>
+                      No streams match the current filter.{" "}
+                      <span onClick={() => { setFilterQuery(""); setFilterTiers([]); }}
+                        style={{ color:"var(--ptc-green)", cursor:"pointer", fontWeight:500 }}>
+                        Clear filters
+                      </span>
+                    </div>
+                  );
+                }
+                return tierVisible.map(tier => {
+                const allStreams = struct[tier.key] || [];
+                const streams = (q && !printAll) ? allStreams.filter(s => (s.stream_name || "").toLowerCase().includes(q)) : allStreams;
                 if (!streams.length) return null;
                 return (
                   <div key={tier.key} style={{ marginBottom:18 }}>
@@ -3363,12 +3570,16 @@ ${streamSections}
                     </div>
                   </div>
                 );
-              })}
-              </>)}
+              });
+              })()}
+              </div>
+              )}
 
               {/* ── Lineage tab ── */}
               {(summaryTab === "lineage" || printAll) && (
-                <LineageDiagram struct={struct} streamIds={streamIds} cbStreamUrl={cbStreamUrl} TIERS={TIERS} />
+                <div key="tab-lineage" className="fade-in-sm">
+                  <LineageDiagram struct={struct} streamIds={streamIds} cbStreamUrl={cbStreamUrl} TIERS={TIERS} />
+                </div>
               )}
 
               {/* Next steps */}

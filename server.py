@@ -126,6 +126,51 @@ CB_PASS      = lambda: os.environ.get("CB_PASS", "")
 OPENAI_KEY   = lambda: os.environ.get("OPENAI_API_KEY", "")
 CB_VERIFY    = lambda: os.environ.get("CB_VERIFY_SSL", "false").lower() in ("true", "1", "yes")
 
+
+def _cb_creds_from_request():
+    """Resolve (base, user, pwd) for the current request.
+
+    Per-request override headers (X-CB-Url / X-CB-User / X-CB-Pass) take
+    precedence when non-empty; otherwise we fall back to the env-driven
+    helpers. The override URL is sanitised the same way the env value is
+    (trailing slash stripped, http(s):// scheme required). When any header
+    is in play we emit a single masked log line — silent otherwise.
+
+    No SSRF host-allowlist exists today; we intentionally do not introduce
+    one here to match the current security posture (localhost-bound demo).
+    """
+    hdr_url  = (request.headers.get("X-CB-Url")  or "").strip()
+    hdr_user = (request.headers.get("X-CB-User") or "").strip()
+    hdr_pass = (request.headers.get("X-CB-Pass") or "")  # don't strip — passwords can have edge whitespace
+
+    base = CB_URL()
+    user = CB_USER()
+    pwd  = CB_PASS()
+    overridden = False
+
+    if hdr_url:
+        candidate = hdr_url.rstrip("/")
+        if candidate.startswith(("http://", "https://")):
+            base = candidate
+            overridden = True
+        else:
+            logger.warning(f"[cb-creds] ignoring X-CB-Url (bad scheme): {candidate[:80]}")
+    if hdr_user:
+        user = hdr_user
+        overridden = True
+    if hdr_pass:
+        pwd = hdr_pass
+        overridden = True
+
+    if overridden:
+        try:
+            host = base.split("://", 1)[1].split("/", 1)[0] if "://" in base else base
+        except Exception:
+            host = base
+        logger.info(f"[cb-creds] override base={host} user={user} pass=***")
+
+    return base, user, pwd
+
 # ── Allowed OpenAI models and limits ─────────────────────────────────────────
 ALLOWED_MODELS = {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo"}
 MAX_TOKENS_LIMIT = 16384
@@ -244,7 +289,7 @@ def openai_generate():
 # ── CB /api/ proxy (non-versioned endpoints like /projects/category) ────────
 @app.route("/api/cb/api/<path:path>", methods=["GET", "POST", "PUT", "DELETE"])
 def cb_api_proxy(path):
-    base = CB_URL()
+    base, user, pwd = _cb_creds_from_request()
     if not base:
         return jsonify({"error": "CB_URL not set"}), 400
 
@@ -253,7 +298,7 @@ def cb_api_proxy(path):
         return jsonify({"error": f"Path not allowed: {path}"}), 403
 
     url = f"{base}/cb/api/{path}"
-    auth = HTTPBasicAuth(CB_USER(), CB_PASS())
+    auth = HTTPBasicAuth(user, pwd)
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     verify = CB_VERIFY()
 
@@ -280,7 +325,7 @@ def cb_api_proxy(path):
 # ── CB v3 API proxy ──────────────────────────────────────────────────────────
 @app.route("/api/cb/v3/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 def cb_v3_proxy(path):
-    base = CB_URL()
+    base, user, pwd = _cb_creds_from_request()
     if not base:
         return jsonify({"error": "CB_URL not set"}), 400
 
@@ -288,7 +333,7 @@ def cb_v3_proxy(path):
         return jsonify({"error": f"Path not allowed: {path}"}), 403
 
     url = f"{base}/cb/api/v3/{path}"
-    auth = HTTPBasicAuth(CB_USER(), CB_PASS())
+    auth = HTTPBasicAuth(user, pwd)
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     verify = CB_VERIFY()
 
@@ -323,7 +368,7 @@ def cleanup_projects():
     Always lists first. Only deletes if dry_run is explicitly false.
     Per-project failures are captured in the response, not raised.
     """
-    base = CB_URL()
+    base, user, pwd = _cb_creds_from_request()
     if not base:
         return jsonify({"error": "CB_URL not set"}), 400
 
@@ -333,7 +378,7 @@ def cleanup_projects():
     if not category:
         return jsonify({"error": "category is required"}), 400
 
-    auth = HTTPBasicAuth(CB_USER(), CB_PASS())
+    auth = HTTPBasicAuth(user, pwd)
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     verify = CB_VERIFY()
 
@@ -430,12 +475,12 @@ def cleanup_list_streams():
 
     Response: {"count": N, "streams": [{id, name, sourceStreamId, color}]}
     """
-    base = CB_URL()
+    base, user, pwd = _cb_creds_from_request()
     if not base:
         return jsonify({"error": "CB_URL not set"}), 400
 
     prefix = (request.args.get("prefix") or "").strip()
-    auth = HTTPBasicAuth(CB_USER(), CB_PASS())
+    auth = HTTPBasicAuth(user, pwd)
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     verify = CB_VERIFY()
 
@@ -488,7 +533,7 @@ def cleanup_list_streams():
 # ── CB v1 REST API proxy ─────────────────────────────────────────────────────
 @app.route("/api/cb/v1/<path:path>", methods=["GET", "POST", "PUT", "DELETE"])
 def cb_v1_proxy(path):
-    base = CB_URL()
+    base, user, pwd = _cb_creds_from_request()
     if not base:
         return jsonify({"error": "CB_URL not set"}), 400
 
@@ -496,7 +541,7 @@ def cb_v1_proxy(path):
         return jsonify({"error": f"Path not allowed: {path}"}), 403
 
     url = f"{base}/cb/rest/{path}"
-    auth = HTTPBasicAuth(CB_USER(), CB_PASS())
+    auth = HTTPBasicAuth(user, pwd)
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     verify = CB_VERIFY()
     # Forward query parameters (e.g., ?pagesize=50&category=...)
