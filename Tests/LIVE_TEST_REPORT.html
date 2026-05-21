@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LIVE TEST REPORT - CT Scanners Domain</title>
+<style>
+:root{--pass:#16a34a;--pass-bg:#dcfce7;--warn:#d97706;--warn-bg:#fef3c7;--fail:#dc2626;--fail-bg:#fee2e2;--skip:#6b7280;--skip-bg:#f3f4f6;--header-bg:#1e3a5f;--header-fg:#ffffff;--phase-bg:#e0f2fe;--border:#e2e8f0;--font:system-ui,-apple-system,sans-serif;--mono:'Fira Mono','Cascadia Code',monospace}
+body{font-family:var(--font);margin:0;padding:24px;background:#f8fafc;color:#1e293b}
+h1{color:var(--header-bg);border-bottom:3px solid var(--header-bg);padding-bottom:8px}
+.meta{background:#1e3a5f;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:20px;font-size:.9em}
+.meta span{margin-right:20px}
+.phase-header{background:var(--phase-bg);border-left:4px solid #0284c7;padding:8px 14px;font-weight:700;font-size:1.05em;margin:20px 0 8px;border-radius:4px}
+table{width:100%;border-collapse:collapse;margin-bottom:16px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+th{background:var(--header-bg);color:var(--header-fg);padding:10px 12px;text-align:left;font-size:.85em}
+td{padding:9px 12px;border-bottom:1px solid var(--border);font-size:.88em;vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#f0f9ff}
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-weight:700;font-size:.82em}
+.pass{background:var(--pass-bg);color:var(--pass)}
+.warn{background:var(--warn-bg);color:var(--warn)}
+.fail{background:var(--fail-bg);color:var(--fail)}
+.skip{background:var(--skip-bg);color:var(--skip)}
+.mono{font-family:var(--mono);font-size:.9em}
+.verdict-box{padding:16px 20px;border-radius:8px;font-size:1.1em;font-weight:700;margin-top:20px}
+.verdict-pass{background:var(--pass-bg);color:var(--pass);border:2px solid var(--pass)}
+</style>
+</head>
+<body>
+<h1>LIVE TEST REPORT &mdash; CT Scanners Domain</h1>
+<div class="meta">
+<span>&#x1F4C5; 2026-05-21</span>
+<span>Start: 06:25:00 UTC</span>
+<span>End: 06:49:20 UTC</span>
+<span>Elapsed: 24.3 min</span>
+<span>Mode: LIVE</span>
+<span>http://localhost:5000/ &rarr; https://pp-2604301240re.portal.ptc.io:9443</span>
+</div>
+<div class="phase-header">Phase 1 &mdash; Pre-flight &amp; Domain Pick (L00&ndash;L02)</div>
+<table><thead><tr><th>Step</th><th>Description</th><th>Result</th><th>Notes</th><th>Duration</th></tr></thead>
+<tbody>
+<tr><td><strong>L00</strong></td><td>Pre-flight: landing page + wizard launch</td><td><span class="badge pass">PASS</span></td><td>Landing page rendered with green &ldquo;Launch the Generator&rdquo; button. Wizard opened at Step 0 with DRY RUN banner (amber). Start: 2026-05-21T06:25:00Z</td><td>~5 s</td></tr>
+<tr><td><strong>L01</strong></td><td>Pick domain &mdash; CT Scanners</td><td><span class="badge pass">PASS</span></td><td>CT Scanner tile found directly in grid (dedicated template). Confirmed: &ldquo;CT Scanner &middot; Computed Tomography (CT) Scanner Systems &middot; Medical Device / Radiology&rdquo;. Path: CT Scanner template (not custom domain).</td><td>~5 s</td></tr>
+<tr><td><strong>L02</strong></td><td>CB Connection check &mdash; fields populated</td><td><span class="badge pass">PASS</span></td><td>CB Base URL: https://pp-2604301240re.portal.ptc.io:9443 (non-empty). Username: pat. Password: masked. OpenAI env key present. No fields edited.</td><td>~2 s</td></tr>
+</tbody></table>
+<div class="phase-header">Phase 2 &mdash; Live-mode Activation &amp; Generation (L03&ndash;L04)</div>
+<table><thead><tr><th>Step</th><th>Description</th><th>Result</th><th>Notes</th><th>Duration</th></tr></thead>
+<tbody>
+<tr><td><strong>L03</strong></td><td>Flip to LIVE mode</td><td><span class="badge pass">PASS</span></td><td>Dry Run checkbox unchecked. Banner changed to green: &ldquo;LIVE MODE &mdash; Create buttons will make real API calls to Codebeamer.&rdquo; Toggle locked after generation begins.</td><td>~3 s</td></tr>
+<tr><td><strong>L04</strong></td><td>Generate structure (OpenAI call)</td><td><span class="badge pass">PASS</span></td><td>Button showed &ldquo;Generating projects, requirements &amp; streams...&rdquo; Preview rendered in 66 s. 11 projects confirmed across 3 project tiers (Library=6, Product Line=2, Release=3). 4-tier stream hierarchy present. Category: &ldquo;Computed Tomography (CT) Scanner Systems&rdquo;.</td><td>66 s</td></tr>
+</tbody></table>
+<div class="phase-header">Phase 3 &mdash; Bulk Creation &mdash; Projects &amp; Requirements (L05&ndash;L06)</div>
+<table><thead><tr><th>Step</th><th>Description</th><th>Result</th><th>Notes</th><th>Duration</th></tr></thead>
+<tbody>
+<tr><td><strong>L05</strong></td><td>Create All Projects (11)</td><td><span class="badge pass">PASS</span></td><td>11/11 created. Zero errors. XRTUBE=128, DETECTR=129, GANTRY=130, CTSOFT=131, CTCONTL=132, PTNTBL=133, CLINPLTF=134, RESEPLTF=135, FORTE3T=136, CLARITY1=137, NEURO7T=138.</td><td>256 s</td></tr>
+<tr><td><strong>L06</strong></td><td>Create All Requirements &amp; Test Cases</td><td><span class="badge pass">PASS</span></td><td>55 requirements, 22 test cases, 55 Verifies links. All 11 projects confirmed. Zero errors.</td><td>58 s</td></tr>
+</tbody></table>
+<div class="phase-header">Paced Stream Creation (L07)</div>
+<p style="font-size:.88em;color:#475569;margin:4px 0 12px">11 streams created one at a time, 30 s pacing between each. No &ldquo;Create All Streams&rdquo; button used.</p>
+<table><thead><tr><th>Stream</th><th>Tier</th><th>Key</th><th>CB id</th><th>Result</th><th>Create latency</th><th>Wait observed</th></tr></thead>
+<tbody>
+<tr><td>Imaging Subsystem Library</td><td>Library</td><td class="mono">LIB_IMG</td><td class="mono">299305</td><td><span class="badge pass">PASS</span></td><td>16 s</td><td>16 s create + 30 s pacing</td></tr>
+<tr><td>Mechanical Subsystem Library</td><td>Library</td><td class="mono">LIB_MECH</td><td class="mono">300078</td><td><span class="badge pass">PASS</span></td><td>17 s</td><td>17 s create + 30 s pacing</td></tr>
+<tr><td>Control Subsystem Library</td><td>Library</td><td class="mono">LIB_CTRL</td><td class="mono">300851</td><td><span class="badge pass">PASS</span></td><td>18 s</td><td>18 s create + 30 s pacing</td></tr>
+<tr><td>Clinical Imaging Platform</td><td>Product Line</td><td class="mono">PL_CLIN</td><td class="mono">301624</td><td><span class="badge pass">PASS</span></td><td>18 s</td><td>18 s create + 30 s pacing</td></tr>
+<tr><td>Research Imaging Platform</td><td>Product Line</td><td class="mono">PL_RESE</td><td class="mono">304327</td><td><span class="badge pass">PASS</span></td><td>48 s</td><td>48 s create + 30 s pacing</td></tr>
+<tr><td>Transform for Panorama Forte 3.0T</td><td>Transform</td><td class="mono">TR_FORTE</td><td class="mono">307030</td><td><span class="badge pass">PASS</span></td><td>27 s</td><td>27 s create + 30 s pacing</td></tr>
+<tr><td>Transform for ClarityVue 1.5T Open</td><td>Transform</td><td class="mono">TR_CLAR</td><td class="mono">309733</td><td><span class="badge pass">PASS</span></td><td>22 s</td><td>22 s create + 30 s pacing</td></tr>
+<tr><td>Transform for NeuroEdge 7T Research</td><td>Transform</td><td class="mono">TR_NEUR</td><td class="mono">312436</td><td><span class="badge pass">PASS</span></td><td>24 s</td><td>24 s create + 30 s pacing</td></tr>
+<tr><td>Panorama Forte 3.0T</td><td>Release</td><td class="mono">REL_FORTE</td><td class="mono">315139</td><td><span class="badge pass">PASS</span></td><td>25 s</td><td>25 s create + 30 s pacing</td></tr>
+<tr><td>ClarityVue 1.5T Open</td><td>Release</td><td class="mono">REL_CLAR</td><td class="mono">318228</td><td><span class="badge pass">PASS</span></td><td>23 s</td><td>23 s create + 30 s pacing</td></tr>
+<tr><td>NeuroEdge 7T Research</td><td>Release</td><td class="mono">REL_NEUR</td><td class="mono">321317</td><td><span class="badge pass">PASS</span></td><td>23 s</td><td>23 s create (last stream)</td></tr>
+</tbody></table>
+<p style="font-size:.85em;margin:4px 0 20px">L07 overall: <span class="badge pass">PASS</span> &mdash; 11/11 streams, zero errors.</p>
+<div class="phase-header">Phase 4 &mdash; Verification &amp; Handoff (L08&ndash;L10)</div>
+<table><thead><tr><th>Step</th><th>Description</th><th>Result</th><th>Notes</th><th>Duration</th></tr></thead>
+<tbody>
+<tr><td><strong>L08</strong></td><td>Step 4 summary stat cards</td><td><span class="badge pass">PASS</span></td><td>Projects=11 (&ge;9 &#10003;), Requirements=55 (&ge;30 &#10003;), Test Cases=22 (&ge;20 &#10003;), Streams=11 (&ge;8 &#10003;).</td><td>~5 s</td></tr>
+<tr><td><strong>L09a</strong></td><td>Projects tab</td><td><span class="badge pass">PASS</span></td><td>All rows with CB ids in monospace. Tier labels visible (library, product line, release).</td><td>~3 s</td></tr>
+<tr><td><strong>L09b</strong></td><td>Streams tab</td><td><span class="badge pass">PASS</span></td><td>Rows grouped by 4 tiers. All CB stream ids visible. Prefix 260521-1150 applied.</td><td>~3 s</td></tr>
+<tr><td><strong>L09c</strong></td><td>Lineage tab</td><td><span class="badge pass">PASS</span></td><td>SVG/diagram renders with 4 columns. Arrows visible between Library&rarr;PL&rarr;Transform&rarr;Release tiers.</td><td>~3 s</td></tr>
+<tr><td><strong>L10</strong></td><td>Export HTML</td><td><span class="badge pass">PASS</span></td><td>Clicked &ldquo;&darr; Export HTML&rdquo; button. Client-side blob download triggered (self-contained HTML). Page stable.</td><td>~2 s</td></tr>
+</tbody></table>
+<div class="phase-header">Phase 5 &mdash; Cross-cutting (L11)</div>
+<table><thead><tr><th>Step</th><th>Description</th><th>Result</th><th>Notes</th><th>Duration</th></tr></thead>
+<tbody>
+<tr><td><strong>L11</strong></td><td>Console errors + non-2xx responses</td><td><span class="badge pass">PASS</span></td><td>Console errors: 0. Non-2xx responses: 0. End: 2026-05-21T06:49:20Z. Elapsed: 24.3 min.</td><td>~5 s</td></tr>
+</tbody></table>
+<div class="phase-header">Analytics</div>
+<table><tbody>
+<tr><td>Total elapsed</td><td><strong>24.3 minutes</strong></td></tr>
+<tr><td>Projects created</td><td><strong>11 / 11</strong> (IDs 128&ndash;138)</td></tr>
+<tr><td>Requirements created</td><td><strong>55</strong></td></tr>
+<tr><td>Test cases created</td><td><strong>22</strong></td></tr>
+<tr><td>Verifies links wired</td><td><strong>55</strong></td></tr>
+<tr><td>Streams created (paced)</td><td><strong>11 / 11</strong> (IDs 299305&ndash;321317, initial base 103955)</td></tr>
+<tr><td>Average stream creation latency</td><td><strong>24 s</strong> (excluding 30 s pacing)</td></tr>
+<tr><td>Console errors</td><td><strong>0</strong></td></tr>
+<tr><td>Non-2xx responses</td><td><strong>0</strong></td></tr>
+<tr><td>Pass / Warn / Fail</td><td><strong>12 pass &middot; 0 warn &middot; 0 fail</strong> (of 12 steps)</td></tr>
+</tbody></table>
+<div class="verdict-box verdict-pass">
+&#9989; VERDICT: Ready for customer demo. &mdash; All 12 steps PASS. Zero console errors, zero non-2xx responses. 11/11 projects (IDs 128&ndash;138), 55 requirements, 22 test cases, 55 Verifies links, and 11/11 streams (IDs 299305&ndash;321317) created in LIVE mode against https://pp-2604301240re.portal.ptc.io:9443. Run prefix: 260521-1150.
+</div>
+<p style="font-size:.8em;color:#94a3b8;margin-top:24px">Report generated by Claude for Chrome &middot; 2026-05-21T06:49:20Z &middot; CT Scanners domain &middot; LIVE mode</p>
+</body>
+</html>

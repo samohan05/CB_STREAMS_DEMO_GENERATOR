@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<title>Codebeamer ALM Demo Summary — CT Scanner Systems — 260521-1150</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #212529; background: #fff; padding: 32px; max-width: 900px; margin: 0 auto; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  h2.tier-label { font-size: 15px; font-weight: 600; margin-top: 24px; margin-bottom: 10px; }
+  .meta { font-size: 12px; color: #6c757d; margin-bottom: 24px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
+  .stat { padding: 14px 16px; border-radius: 8px; }
+  .stat-val { font-size: 24px; font-weight: 600; }
+  .stat-lbl { font-size: 11px; color: #6c757d; margin-top: 2px; }
+  .section-h { font-size: 15px; font-weight: 600; margin: 20px 0 10px; }
+  .proj { border: 1px solid #dee2e6; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .proj-head { display: flex; align-items: center; gap: 10px; }
+  .proj-name { font-size: 13px; font-weight: 500; flex: 1; }
+  .pill { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
+  .proj-id, .stream-id { font-size: 11px; font-family: monospace; color: #adb5bd; min-width: 90px; text-align: right; }
+  .proj-body { margin-top: 10px; padding-left: 16px; }
+  .art-block { border-left: 2px solid #dee2e6; padding-left: 12px; padding-bottom: 4px; margin-bottom: 8px; }
+  .art-label { font-size: 10px; font-weight: 600; color: #adb5bd; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .art-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+  .art-row > span:first-child { flex: 1; }
+  .art-meta { color: #adb5bd; font-size: 11px; }
+  .art-id { color: #adb5bd; font-family: monospace; font-size: 11px; min-width: 90px; text-align: right; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .stream { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .stream-head { display: flex; align-items: center; gap: 10px; }
+  .stream-name { font-size: 13px; font-weight: 500; flex: 1; }
+  .prefix { color: #adb5bd; font-weight: 400; }
+  .stream-sub { font-size: 11px; color: #6c757d; margin-top: 4px; padding-left: 4px; }
+  .stream-projs { margin-top: 8px; padding-left: 16px; border-left: 2px solid #dee2e6; }
+  .stream-proj { display: flex; align-items: center; padding: 3px 0; font-size: 12px; }
+  .stream-proj > span:first-child { flex: 1; }
+  .source { color: #adb5bd; font-size: 11px; }
+  .tier-count { font-weight: 400; color: #adb5bd; }
+  footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #dee2e6; font-size: 11px; color: #6c757d; }
+  footer a { color: inherit; text-decoration: underline; }
+  @media print {
+    body { padding: 0; }
+    .stream, .proj { page-break-inside: avoid; }
+    a[href]:after { content: " (" attr(href) ")"; font-size: 9px; color: #6c757d; }
+  }
+</style>
+</head><body>
+<h1>Demo Summary: CT Scanner Systems</h1>
+<div class="meta">[260521-1150] · Live mode · Created 5/21/2026, 11:56:58 AM</div>
+
+<div class="stats">
+  <div class="stat" style="background:#EEEDFE"><div class="stat-val" style="color:#534AB7">11</div><div class="stat-lbl">Projects</div></div>
+  <div class="stat" style="background:#FAEEDA"><div class="stat-val" style="color:#854F0B">55</div><div class="stat-lbl">Requirements</div></div>
+  <div class="stat" style="background:#E6F1FB"><div class="stat-val" style="color:#185FA5">22</div><div class="stat-lbl">Test Cases</div></div>
+  <div class="stat" style="background:#E1F5EE"><div class="stat-val" style="color:#0F6E56">11</div><div class="stat-lbl">Streams</div></div>
+</div>
+
+<h2 class="section-h">Projects</h2>
+
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#40AA1D"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/XRTUBE">X-Ray Tube Assembly</a></span>
+                      <span class="pill" style="color:#40AA1D;background:#E6F5E0">library</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/XRTUBE">id 128</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The X-Ray Tube shall produce 120 kVp per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032003">id 1032003</a></span></div><div class="art-row"><span>The X-Ray Tube shall operate at 100 mA per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032023">id 1032023</a></span></div><div class="art-row"><span>The X-Ray Tube shall have a focal spot size of 0.6 mm per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032045">id 1032045</a></span></div><div class="art-row"><span>The X-Ray Tube shall have a heat capacity of 3.5 MHU per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032067">id 1032067</a></span></div><div class="art-row"><span>The X-Ray Tube shall have a lifespan of 50,000 exposures per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032087">id 1032087</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify kVp output under standard conditions</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032003">1032003</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032023">1032023</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032045">1032045</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032109">id 1032109</a></span></div><div class="art-row"><span>Verify heat capacity under continuous use</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032067">1032067</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032087">1032087</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032129">id 1032129</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#40AA1D"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/DETECTR">X-Ray Detector Array</a></span>
+                      <span class="pill" style="color:#40AA1D;background:#E6F5E0">library</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/DETECTR">id 129</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The Detector shall have a resolution of 1,024 x 1,024 pixels per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1031993">id 1031993</a></span></div><div class="art-row"><span>The Detector shall have a dynamic range of 16 bits per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032021">id 1032021</a></span></div><div class="art-row"><span>The Detector shall have a sensitivity of 90% per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032043">id 1032043</a></span></div><div class="art-row"><span>The Detector shall operate at 30 fps per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032061">id 1032061</a></span></div><div class="art-row"><span>The Detector shall have a latency of less than 50 ms per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032083">id 1032083</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify pixel resolution under imaging</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1031993">1031993</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032021">1032021</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032043">1032043</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032103">id 1032103</a></span></div><div class="art-row"><span>Verify frame rate under continuous capture</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032061">1032061</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032083">1032083</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032125">id 1032125</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#40AA1D"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/GANTRY">Gantry Rotation System</a></span>
+                      <span class="pill" style="color:#40AA1D;background:#E6F5E0">library</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/GANTRY">id 130</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The Gantry shall rotate at 1 rpm per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1031999">id 1031999</a></span></div><div class="art-row"><span>The Gantry shall support a load of 200 kg per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032017">id 1032017</a></span></div><div class="art-row"><span>The Gantry shall have a positioning accuracy of 0.5 mm per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032039">id 1032039</a></span></div><div class="art-row"><span>The Gantry shall operate with noise below 60 dB per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032059">id 1032059</a></span></div><div class="art-row"><span>The Gantry shall have a lifespan of 10,000 hours per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032081">id 1032081</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify rotation speed under normal operation</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1031999">1031999</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032017">1032017</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032039">1032039</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032105">id 1032105</a></span></div><div class="art-row"><span>Verify noise level under full operation</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032059">1032059</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032081">1032081</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032131">id 1032131</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#40AA1D"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTSOFT">CT Image Reconstruction Software</a></span>
+                      <span class="pill" style="color:#40AA1D;background:#E6F5E0">library</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTSOFT">id 131</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The Software shall reconstruct images within 5 seconds per IEC 62304</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032001">id 1032001</a></span></div><div class="art-row"><span>The Software shall achieve an accuracy of +/- 0.5 mm per IEC 62304</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032025">id 1032025</a></span></div><div class="art-row"><span>The Software shall support DICOM 3.0 per IEC 62304</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032051">id 1032051</a></span></div><div class="art-row"><span>The Software shall operate with 99.99% uptime per IEC 62304</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032071">id 1032071</a></span></div><div class="art-row"><span>The Software shall process 100 images per hour per IEC 62304</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032095">id 1032095</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify reconstruction time under normal load</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032001">1032001</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032025">1032025</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032051">1032051</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032117">id 1032117</a></span></div><div class="art-row"><span>Verify uptime under continuous operation</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032071">1032071</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032095">1032095</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032137">id 1032137</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#40AA1D"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTCONTL">CT System Control Unit</a></span>
+                      <span class="pill" style="color:#40AA1D;background:#E6F5E0">library</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTCONTL">id 132</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The Control Unit shall execute commands within 100 ms per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1031997">id 1031997</a></span></div><div class="art-row"><span>The Control Unit shall support 10 concurrent processes per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032015">id 1032015</a></span></div><div class="art-row"><span>The Control Unit shall have a fail-safe mode per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032037">id 1032037</a></span></div><div class="art-row"><span>The Control Unit shall log events with timestamp accuracy of 1 ms per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032065">id 1032065</a></span></div><div class="art-row"><span>The Control Unit shall operate with 99.9% reliability per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032089">id 1032089</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify command execution time under load</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1031997">1031997</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032015">1032015</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032037">1032037</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032111">id 1032111</a></span></div><div class="art-row"><span>Verify logging accuracy under operation</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032065">1032065</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032089">1032089</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032135">id 1032135</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#40AA1D"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/PTNTBL">Patient Table Positioning System</a></span>
+                      <span class="pill" style="color:#40AA1D;background:#E6F5E0">library</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/PTNTBL">id 133</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The Table shall move at 10 mm/s per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1031995">id 1031995</a></span></div><div class="art-row"><span>The Table shall support a weight of 250 kg per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032019">id 1032019</a></span></div><div class="art-row"><span>The Table shall have a positioning accuracy of 1 mm per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032041">id 1032041</a></span></div><div class="art-row"><span>The Table shall operate with noise below 55 dB per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032063">id 1032063</a></span></div><div class="art-row"><span>The Table shall have a lifespan of 15,000 cycles per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032085">id 1032085</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify movement speed under load</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1031995">1031995</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032019">1032019</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032041">1032041</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032107">id 1032107</a></span></div><div class="art-row"><span>Verify noise level under full operation</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032063">1032063</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032085">1032085</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032127">id 1032127</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#1D496E"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CLINPLTF">Clinical Platform Integration</a></span>
+                      <span class="pill" style="color:#1D496E;background:#E4ECF3">product line</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CLINPLTF">id 134</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The Clinical Platform shall integrate imaging and control per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032005">id 1032005</a></span></div><div class="art-row"><span>The Clinical Platform shall integrate imaging and control per IEC 60601 (variant 2)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032027">id 1032027</a></span></div><div class="art-row"><span>The Clinical Platform shall integrate imaging and control per IEC 60601 (variant 3)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032047">id 1032047</a></span></div><div class="art-row"><span>The Clinical Platform shall integrate imaging and control per IEC 60601 (variant 4)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032069">id 1032069</a></span></div><div class="art-row"><span>The Clinical Platform shall integrate imaging and control per IEC 60601 (variant 5)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032093">id 1032093</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify imaging and control integration under clinical conditions</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032005">1032005</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032027">1032027</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032047">1032047</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032115">id 1032115</a></span></div><div class="art-row"><span>Verify imaging and control integration under clinical conditions (variant 4)</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032069">1032069</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032093">1032093</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032141">id 1032141</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#1D496E"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/RESEPLTF">Research Platform Integration</a></span>
+                      <span class="pill" style="color:#1D496E;background:#E4ECF3">product line</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/RESEPLTF">id 135</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The Research Platform shall validate advanced imaging per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032009">id 1032009</a></span></div><div class="art-row"><span>The Research Platform shall validate advanced imaging per IEC 60601 (variant 2)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032031">id 1032031</a></span></div><div class="art-row"><span>The Research Platform shall validate advanced imaging per IEC 60601 (variant 3)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032053">id 1032053</a></span></div><div class="art-row"><span>The Research Platform shall validate advanced imaging per IEC 60601 (variant 4)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032073">id 1032073</a></span></div><div class="art-row"><span>The Research Platform shall validate advanced imaging per IEC 60601 (variant 5)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032091">id 1032091</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify advanced imaging under research conditions</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032009">1032009</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032031">1032031</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032053">1032053</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032113">id 1032113</a></span></div><div class="art-row"><span>Verify advanced imaging under research conditions (variant 4)</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032073">1032073</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032091">1032091</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032133">id 1032133</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#197BC0"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/FORTE3T">Panorama Forte 3.0T Certification</a></span>
+                      <span class="pill" style="color:#197BC0;background:#E1EEFA">release</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/FORTE3T">id 136</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The Panorama Forte 3.0T shall comply with FDA standards per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032007">id 1032007</a></span></div><div class="art-row"><span>The Panorama Forte 3.0T shall comply with FDA standards per IEC 60601 (variant 2)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032029">id 1032029</a></span></div><div class="art-row"><span>The Panorama Forte 3.0T shall comply with FDA standards per IEC 60601 (variant 3)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032049">id 1032049</a></span></div><div class="art-row"><span>The Panorama Forte 3.0T shall comply with FDA standards per IEC 60601 (variant 4)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032075">id 1032075</a></span></div><div class="art-row"><span>The Panorama Forte 3.0T shall comply with FDA standards per IEC 60601 (variant 5)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032099">id 1032099</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify compliance with FDA requirements</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032007">1032007</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032029">1032029</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032049">1032049</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032123">id 1032123</a></span></div><div class="art-row"><span>Verify compliance with FDA requirements (variant 4)</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032075">1032075</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032099">1032099</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032139">id 1032139</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#197BC0"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CLARITY1">ClarityVue 1.5T Open Certification</a></span>
+                      <span class="pill" style="color:#197BC0;background:#E1EEFA">release</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CLARITY1">id 137</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The ClarityVue 1.5T Open shall demonstrate safety per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032013">id 1032013</a></span></div><div class="art-row"><span>The ClarityVue 1.5T Open shall demonstrate safety per IEC 60601 (variant 2)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032033">id 1032033</a></span></div><div class="art-row"><span>The ClarityVue 1.5T Open shall demonstrate safety per IEC 60601 (variant 3)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032055">id 1032055</a></span></div><div class="art-row"><span>The ClarityVue 1.5T Open shall demonstrate safety per IEC 60601 (variant 4)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032077">id 1032077</a></span></div><div class="art-row"><span>The ClarityVue 1.5T Open shall demonstrate safety per IEC 60601 (variant 5)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032101">id 1032101</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify safety compliance for open design</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032013">1032013</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032033">1032033</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032055">1032055</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032121">id 1032121</a></span></div><div class="art-row"><span>Verify safety compliance for open design (variant 4)</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032077">1032077</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032101">1032101</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032145">id 1032145</a></span></div></div>
+                    </div>
+                  </div>
+                  <div class="proj print-section">
+                    <div class="proj-head">
+                      <span class="dot" style="background:#197BC0"></span>
+                      <span class="proj-name"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/NEURO7T">NeuroEdge 7T Research Certification</a></span>
+                      <span class="pill" style="color:#197BC0;background:#E1EEFA">release</span>
+                      <span class="proj-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/NEURO7T">id 138</a></span>
+                    </div>
+                    
+                    <div class="proj-body">
+                      <div class="art-block"><div class="art-label">5 REQUIREMENTS</div><div class="art-row"><span>The NeuroEdge 7T shall demonstrate research compliance per IEC 60601</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032011">id 1032011</a></span></div><div class="art-row"><span>The NeuroEdge 7T shall demonstrate research compliance per IEC 60601 (variant 2)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032035">id 1032035</a></span></div><div class="art-row"><span>The NeuroEdge 7T shall demonstrate research compliance per IEC 60601 (variant 3)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032057">id 1032057</a></span></div><div class="art-row"><span>The NeuroEdge 7T shall demonstrate research compliance per IEC 60601 (variant 4)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032079">id 1032079</a></span></div><div class="art-row"><span>The NeuroEdge 7T shall demonstrate research compliance per IEC 60601 (variant 5)</span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032097">id 1032097</a></span></div></div>
+                      <div class="art-block"><div class="art-label">2 TEST CASES</div><div class="art-row"><span>Verify research compliance for high-field imaging</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032011">1032011</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032035">1032035</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032057">1032057</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032119">id 1032119</a></span></div><div class="art-row"><span>Verify research compliance for high-field imaging (variant 4)</span><span class="art-meta">verifies <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032079">1032079</a>, <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032097">1032097</a></span><span class="art-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/issue/1032143">id 1032143</a></span></div></div>
+                    </div>
+                  </div>
+
+<div class="tier-block"><h2 class="tier-label" style="color:#40AA1D">Library Streams <span class="tier-count">(3)</span></h2>
+                    <div class="stream print-section" style="border-left:3px solid #40AA1D">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=299305">Imaging Subsystem Library</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=299305">id 299305</a></span>
+                      </div>
+                      <div class="stream-sub">No parent — independent root  ·  2 projects</div>
+                      <div class="stream-projs"><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/XRTUBE">X-Ray Tube Assembly</a></span><span class="source">source: Initial Stream</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/DETECTR">X-Ray Detector Array</a></span><span class="source">source: Initial Stream</span></div></div>
+                    </div>
+                    <div class="stream print-section" style="border-left:3px solid #40AA1D">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=300078">Mechanical Subsystem Library</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=300078">id 300078</a></span>
+                      </div>
+                      <div class="stream-sub">No parent — independent root  ·  2 projects</div>
+                      <div class="stream-projs"><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/GANTRY">Gantry Rotation System</a></span><span class="source">source: Initial Stream</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/PTNTBL">Patient Table Positioning System</a></span><span class="source">source: Initial Stream</span></div></div>
+                    </div>
+                    <div class="stream print-section" style="border-left:3px solid #40AA1D">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=300851">Control Subsystem Library</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=300851">id 300851</a></span>
+                      </div>
+                      <div class="stream-sub">No parent — independent root  ·  2 projects</div>
+                      <div class="stream-projs"><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTSOFT">CT Image Reconstruction Software</a></span><span class="source">source: Initial Stream</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTCONTL">CT System Control Unit</a></span><span class="source">source: Initial Stream</span></div></div>
+                    </div></div><div class="tier-block"><h2 class="tier-label" style="color:#1D496E">Product Line Streams <span class="tier-count">(2)</span></h2>
+                    <div class="stream print-section" style="border-left:3px solid #1D496E">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=301624">Clinical Imaging Platform</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=301624">id 301624</a></span>
+                      </div>
+                      <div class="stream-sub">No parent — independent root  ·  7 projects</div>
+                      <div class="stream-projs"><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/XRTUBE">X-Ray Tube Assembly</a></span><span class="source">source: Imaging Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/DETECTR">X-Ray Detector Array</a></span><span class="source">source: Imaging Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/GANTRY">Gantry Rotation System</a></span><span class="source">source: Mechanical Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/PTNTBL">Patient Table Positioning System</a></span><span class="source">source: Mechanical Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTSOFT">CT Image Reconstruction Software</a></span><span class="source">source: Control Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTCONTL">CT System Control Unit</a></span><span class="source">source: Control Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CLINPLTF">Clinical Platform Integration</a></span><span class="source">source: Initial Stream</span></div></div>
+                    </div>
+                    <div class="stream print-section" style="border-left:3px solid #1D496E">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=304327">Research Imaging Platform</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=304327">id 304327</a></span>
+                      </div>
+                      <div class="stream-sub">No parent — independent root  ·  7 projects</div>
+                      <div class="stream-projs"><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/XRTUBE">X-Ray Tube Assembly</a></span><span class="source">source: Imaging Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/DETECTR">X-Ray Detector Array</a></span><span class="source">source: Imaging Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/GANTRY">Gantry Rotation System</a></span><span class="source">source: Mechanical Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/PTNTBL">Patient Table Positioning System</a></span><span class="source">source: Mechanical Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTSOFT">CT Image Reconstruction Software</a></span><span class="source">source: Control Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CTCONTL">CT System Control Unit</a></span><span class="source">source: Control Subsystem Library</span></div><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/RESEPLTF">Research Platform Integration</a></span><span class="source">source: Initial Stream</span></div></div>
+                    </div></div><div class="tier-block"><h2 class="tier-label" style="color:#617480">Transform Streams <span class="tier-count">(3)</span></h2>
+                    <div class="stream print-section" style="border-left:3px solid #617480">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=307030">Transform for Panorama Forte 3.0T</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=307030">id 307030</a></span>
+                      </div>
+                      <div class="stream-sub">Branched from Clinical Imaging Platform  ·  mirrors 6 projects via inheritance</div>
+                      
+                    </div>
+                    <div class="stream print-section" style="border-left:3px solid #617480">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=309733">Transform for ClarityVue 1.5T Open</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=309733">id 309733</a></span>
+                      </div>
+                      <div class="stream-sub">Branched from Clinical Imaging Platform  ·  mirrors 6 projects via inheritance</div>
+                      
+                    </div>
+                    <div class="stream print-section" style="border-left:3px solid #617480">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=312436">Transform for NeuroEdge 7T Research</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=312436">id 312436</a></span>
+                      </div>
+                      <div class="stream-sub">Branched from Research Imaging Platform  ·  mirrors 6 projects via inheritance</div>
+                      
+                    </div></div><div class="tier-block"><h2 class="tier-label" style="color:#197BC0">Release Streams <span class="tier-count">(3)</span></h2>
+                    <div class="stream print-section" style="border-left:3px solid #197BC0">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=315139">Panorama Forte 3.0T</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=315139">id 315139</a></span>
+                      </div>
+                      <div class="stream-sub">Branched from Transform for Panorama Forte 3.0T  ·  inherits 6  ·  1 release-specific</div>
+                      <div class="stream-projs"><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/FORTE3T">Panorama Forte 3.0T Certification</a></span><span class="source">source: Initial Stream</span></div></div>
+                    </div>
+                    <div class="stream print-section" style="border-left:3px solid #197BC0">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=318228">ClarityVue 1.5T Open</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=318228">id 318228</a></span>
+                      </div>
+                      <div class="stream-sub">Branched from Transform for ClarityVue 1.5T Open  ·  inherits 6  ·  1 release-specific</div>
+                      <div class="stream-projs"><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/CLARITY1">ClarityVue 1.5T Open Certification</a></span><span class="source">source: Initial Stream</span></div></div>
+                    </div>
+                    <div class="stream print-section" style="border-left:3px solid #197BC0">
+                      <div class="stream-head">
+                        <span class="stream-name"><span class="prefix">[260521-1150]</span> <a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=321317">NeuroEdge 7T Research</a></span>
+                        <span class="stream-id"><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/streams/projectList.spr?streamId=321317">id 321317</a></span>
+                      </div>
+                      <div class="stream-sub">Branched from Transform for NeuroEdge 7T Research  ·  inherits 6  ·  1 release-specific</div>
+                      <div class="stream-projs"><div class="stream-proj"><span><a href="https://pp-2604301240re.portal.ptc.io:9443/cb/project/NEURO7T">NeuroEdge 7T Research Certification</a></span><span class="source">source: Initial Stream</span></div></div>
+                    </div></div>
+
+<footer>
+  Generated by Codebeamer ALM Demo Studio <strong>v4 · 2026-05-14 · commit e1aa85a</strong> — <a href="https://github.com/samohan05/CB_STREAMS_DEMO_GENERATOR">https://github.com/samohan05/CB_STREAMS_DEMO_GENERATOR</a>
+  <br>
+  Exported 5/21/2026, 12:18:42 PM from CB instance https://pp-2604301240re.portal.ptc.io:9443.
+</footer>
+</body></html>
