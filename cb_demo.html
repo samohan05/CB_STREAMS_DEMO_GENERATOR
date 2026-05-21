@@ -270,8 +270,8 @@
       };
 
       const features = [
-        { icon:"⚡", title:"End-to-end traceability, generated in under three minutes.",
-          body:"Projects, requirements, test cases, and Verifies links are wired up before you finish your coffee." },
+        { icon:"⚡", title:"End-to-end traceability, generated in under 15 minutes.",
+          body:"Projects, requirements, test cases, and Verifies links are wired up while you finish your prep notes." },
         { icon:"🏭", title:"Eight regulated-industry templates out of the box.",
           body:"MedTech, Aerospace, Automotive ADAS, Pharma, Energy, Medical Imaging, Industrial Equipment, Consumer Electronics — plus custom domains." },
         { icon:"🌳", title:"A four-tier stream hierarchy your customer will recognise.",
@@ -293,7 +293,7 @@
       ];
 
       const capabilities = [
-        "Builds a complete demo in 1–3 minutes",
+        "Builds a complete demo in under 15 minutes",
         "Generates realistic, domain-correct requirements and test cases",
         "Wires Verifies traceability across the hierarchy",
         "Auto-resumes if you re-enter the same domain mid-run",
@@ -307,7 +307,7 @@
       const limitations = [
         "Streams cannot be deleted via the Codebeamer API — cleanup of streams is manual in the UI.",
         "The merge workflow has to be demonstrated live in Codebeamer; the tool does not animate it.",
-        "Generation takes 10–60 seconds; live provisioning of ~60 projects adds about a minute.",
+        "AI generation takes 10–60 seconds; live provisioning of 11 projects and ~70 artifacts adds the bulk of the time — plan for up to 15 minutes end-to-end.",
         // R4 — sandbox-only + prerequisites merged so the list reads as honest limits, not setup notes.
         "Sandbox-only. Not safe for customer production tenants. Requires a live Codebeamer sandbox and backend OpenAI access.",
         "No automatic undo once a live run is committed — use Dry Run first.",
@@ -364,7 +364,7 @@
                 A credible Codebeamer demo environment, ready before your customer joins the call.
               </div>
               <div style={{ fontSize:15, lineHeight:1.7, color:"rgba(255,255,255,0.88)", marginBottom:30, maxWidth:680 }}>
-                Provisioning a Codebeamer ALM environment with realistic requirements, test coverage, and a four-tier stream hierarchy used to take a consultant a full day. This tool does it in under three minutes against any sandbox, for any regulated industry, without leaving traces in production.
+                Provisioning a Codebeamer ALM environment with realistic requirements, test coverage, and a four-tier stream hierarchy used to take a consultant a full day. This tool does it in under 15 minutes against any sandbox, for any regulated industry, without leaving traces in production.
               </div>
               <div style={{ display:"flex", gap:14, flexWrap:"wrap", alignItems:"center" }}>
                 <button
@@ -381,7 +381,7 @@
                   Launch the Generator →
                 </button>
                 <span style={{ fontSize:12, color:"rgba(255,255,255,0.7)" }}>
-                  Internal PTC pre-sales tool · Sandboxes only
+                  Internal PTC tool · Sandboxes only
                 </span>
               </div>
             </div>
@@ -390,10 +390,10 @@
           {/* ─── HEADLINE STATS BAND ──────────────────────────────────────── */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:12, marginBottom:48 }}>
             {[
-              { n:"< 3 min", l:"end-to-end provisioning" },
-              { n:"8", l:"regulated-industry templates" },
+              { n:"< 15 min", l:"end-to-end provisioning" },
               { n:"4-tier", l:"stream hierarchy" },
-              { n:"60+", l:"projects per run" },
+              { n:"11", l:"projects and streams" },
+              { n:"70+", l:"artifacts (reqs + test cases)" },
             ].map((s,i) => (
               <div key={i} style={{
                 padding:"20px 16px", textAlign:"center", borderRadius:10,
@@ -543,7 +543,7 @@
               Stop rebuilding the same demo. Spend the time on the customer instead.
             </div>
             <div style={{ fontSize:13, color:"rgba(255,255,255,0.78)", marginBottom:22 }}>
-              Internal PTC pre-sales tool · Sandboxes only · Questions: <a href="mailto:samohan@ptc.com" style={{ color:"var(--ptc-green-tint)" }}>samohan@ptc.com</a>
+              Internal PTC tool · Sandboxes only · Questions: <a href="mailto:samohan@ptc.com" style={{ color:"var(--ptc-green-tint)" }}>samohan@ptc.com</a>
             </div>
             <button
               onClick={onLaunch}
